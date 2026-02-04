@@ -38,3 +38,5 @@ next-env.d.ts
 .claude/skills
 .codex/skills
 .opencode/skills
+.playwright-browsers
+.sisyphus
