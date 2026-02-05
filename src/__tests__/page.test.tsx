@@ -16,6 +16,10 @@ vi.mock('@/stores/useStore', () => {
   const state: StoreState = {
     nodes: [],
     edges: [],
+    ghostNodes: [],
+    isGenerating: false,
+    aiError: null,
+    globalGoal: '',
     isLoading: false,
     loadFromDb: vi.fn(),
     addNode: vi.fn(),
@@ -27,6 +31,13 @@ vi.mock('@/stores/useStore', () => {
     onNodesChange: vi.fn(),
     onEdgesChange: vi.fn(),
     onConnect: vi.fn(),
+    setGhostNodes: vi.fn(),
+    acceptGhostNode: vi.fn(),
+    dismissGhostNode: vi.fn(),
+    setIsGenerating: vi.fn(),
+    setAiError: vi.fn(),
+    setGlobalGoal: vi.fn(),
+    clearGhostNodes: vi.fn(),
   }
 
   const useStore = <T,>(selector?: (state: StoreState) => T) =>

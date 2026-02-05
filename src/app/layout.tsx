@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
   title: 'StemFlow',
@@ -12,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, padding: 0, height: '100vh', width: '100vw', fontFamily: 'system-ui, sans-serif' }}>
+      <body className="m-0 h-screen w-screen bg-slate-100 font-sans text-slate-900 antialiased">
         {children}
       </body>
     </html>

@@ -1,0 +1,209 @@
+import { generateText } from 'ai'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
+
+import { formatAncestryForPrompt } from '@/lib/graph'
+import type { NodeType, OMVNode } from '@/types/nodes'
+import modelsSchema from '@/lib/models-schema.json'
+
+export interface GeneratedStep {
+  type: NodeType
+  text_content: string
+}
+
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
+const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
+
+const getMaxOutputTokens = (modelId: string): number => {
+  for (const provider of Object.values(modelsSchema)) {
+    if (provider && typeof provider === 'object' && 'models' in provider) {
+      const models = provider.models as Record<string, any>
+      if (modelId in models) {
+        return models[modelId]?.limit?.output ?? 4096
+      }
+    }
+  }
+  return 4096
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const isNodeType = (value: unknown): value is NodeType =>
+  value === 'OBSERVATION' || value === 'MECHANISM' || value === 'VALIDATION'
+
+const extractJsonPayload = (content: string): string => {
+  // Try to extract JSON from markdown code blocks
+  const fenced =
+    content.match(/```json\s*([\s\S]*?)```/i) ??
+    content.match(/```\s*([\s\S]*?)```/i)
+  
+  if (fenced) {
+    return fenced[1].trim()
+  }
+  
+  // Try to find JSON array in the content
+  const arrayMatch = content.match(/\[[\s\S]*\]/)
+  if (arrayMatch) {
+    return arrayMatch[0].trim()
+  }
+  
+  // Return trimmed content as-is
+  return content.trim()
+}
+
+const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
+  console.log('[AI Service] Parsing payload:', payload)
+  
+  const list = Array.isArray(payload)
+    ? payload
+    : isRecord(payload) && Array.isArray(payload.steps)
+      ? payload.steps
+      : null
+
+  if (!list || list.length === 0) {
+    console.error('[AI Service] Invalid payload structure:', {
+      isArray: Array.isArray(payload),
+      isRecord: isRecord(payload),
+      hasSteps: isRecord(payload) && 'steps' in payload,
+      payload
+    })
+    throw new Error('Failed to parse AI response')
+  }
+
+  console.log('[AI Service] Processing list with', list.length, 'items')
+
+  return list.map((item, index) => {
+    console.log(`[AI Service] Processing item ${index}:`, item)
+    
+    if (!isRecord(item)) {
+      console.error(`[AI Service] Item ${index} is not a record:`, typeof item, item)
+      throw new Error('Failed to parse AI response')
+    }
+
+    if (!('text_content' in item)) {
+      if ('text_' in item) {
+        (item as any).text_content = (item as any).text_
+      } else if ('text' in item) {
+        (item as any).text_content = (item as any).text
+      }
+    }
+
+    const { type, text_content } = item
+    if (!isNodeType(type) || typeof text_content !== 'string') {
+      console.error(`[AI Service] Item ${index} has invalid fields:`, {
+        type,
+        isValidType: isNodeType(type),
+        text_content,
+        isValidContent: typeof text_content === 'string'
+      })
+      throw new Error('Failed to parse AI response')
+    }
+
+    console.log(`[AI Service] Item ${index} validated successfully`)
+    return { type, text_content }
+  })
+}
+
+const buildPrompt = (ancestry: OMVNode[], globalGoal: string): string => {
+  const ancestryContext = formatAncestryForPrompt(ancestry)
+  const goal = globalGoal.trim() || 'No global goal provided.'
+  const context = ancestryContext.trim() || 'No ancestry context provided.'
+
+  return [
+    'You are assisting with scientific research using the Observation-Mechanism-Validation (OMV) framework.',
+    `Global research goal:\n${goal}`,
+    `Ancestry context:\n${context}`,
+    'Suggest 1 to 3 next steps in the OMV framework.',
+    '',
+    'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
+    'Format: [{"type": "OBSERVATION", "text_content": "description"}, ...]',
+    'The "type" must be exactly one of: "OBSERVATION", "MECHANISM", or "VALIDATION".',
+    '',
+    'Example response:',
+    '[{"type": "OBSERVATION", "text_content": "Collect baseline metrics"}, {"type": "MECHANISM", "text_content": "Analyze correlation patterns"}]'
+  ].join('\n')
+}
+
+export async function generateNextSteps(
+  ancestry: OMVNode[],
+  globalGoal: string,
+  provider: 'openai' | 'anthropic' | 'openai-compatible',
+  apiKey: string,
+  model?: string | null,
+  baseUrl?: string | null
+): Promise<GeneratedStep[]> {
+  const prompt = buildPrompt(ancestry, globalGoal)
+
+  try {
+    let content: string
+
+    if (provider === 'openai' || provider === 'openai-compatible') {
+      const openai = createOpenAI({
+        apiKey,
+        baseURL: baseUrl || undefined
+      })
+
+      const modelName = model || DEFAULT_OPENAI_MODEL
+      const result = await generateText({
+        model: openai.chat(modelName),
+        prompt,
+        temperature: 0.4,
+        maxOutputTokens: getMaxOutputTokens(modelName)
+      })
+
+      if (result.finishReason === 'length') {
+        throw new Error('Response was truncated due to length limit. Try a shorter prompt or simpler request.')
+      }
+
+      content = result.text
+    } else {
+      const anthropic = createAnthropic({
+        apiKey,
+        baseURL: baseUrl || undefined
+      })
+
+      const modelName = model || DEFAULT_ANTHROPIC_MODEL
+      const result = await generateText({
+        model: anthropic(modelName),
+        prompt,
+        temperature: 0.4,
+        maxOutputTokens: getMaxOutputTokens(modelName)
+      })
+
+      if (result.finishReason === 'length') {
+        throw new Error('Response was truncated due to length limit. Try a shorter prompt or simpler request.')
+      }
+
+      content = result.text
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(extractJsonPayload(content))
+    } catch (error) {
+      console.error('AI Response parsing failed. Raw content:', content)
+      console.error('Extracted payload:', extractJsonPayload(content))
+      throw new Error('Failed to parse AI response')
+    }
+
+    return toGeneratedSteps(parsed)
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('401') || error.message.includes('403') || error.message.includes('API key')) {
+        throw new Error('Invalid API key')
+      }
+      if (error.message.includes('429') || error.message.includes('rate limit')) {
+        throw new Error('Rate limit exceeded')
+      }
+      if (error.message.includes('Failed to parse')) {
+        throw error
+      }
+      if (error.message.includes('fetch') || error.message.includes('network')) {
+        throw new Error('Network error: Failed to reach AI provider')
+      }
+      throw error
+    }
+    throw new Error('AI request failed')
+  }
+}

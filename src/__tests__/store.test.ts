@@ -124,4 +124,117 @@ describe('useStore', () => {
       vi.useFakeTimers()
     }
   })
+
+  it('sets ghost nodes', async () => {
+    const { useStore } = await createStore()
+
+    const ghostNodes = [
+      {
+        id: 'ghost-1',
+        type: 'GHOST' as const,
+        position: { x: 10, y: 20 },
+        data: {
+          parentId: 'parent-1',
+          suggestedType: 'OBSERVATION' as const,
+          text_content: 'Ghost idea',
+          ghostId: 'ghost-1',
+        },
+      }
+    ]
+
+    useStore.getState().setGhostNodes(ghostNodes)
+
+    expect(useStore.getState().ghostNodes).toEqual(ghostNodes)
+  })
+
+  it('accepts ghost nodes into real nodes and edges', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().addNode({
+      id: 'parent-1',
+      type: 'MECHANISM',
+      data: { text_content: 'Parent' },
+      position: { x: 0, y: 0 }
+    })
+
+    useStore.getState().setGhostNodes([
+      {
+        id: 'ghost-1',
+        type: 'GHOST' as const,
+        position: { x: 50, y: 60 },
+        data: {
+          parentId: 'parent-1',
+          suggestedType: 'VALIDATION' as const,
+          text_content: 'Ghost validation',
+          ghostId: 'ghost-1',
+        },
+      }
+    ])
+
+    useStore.getState().acceptGhostNode('ghost-1')
+
+    const state = useStore.getState()
+    const newNode = state.nodes.find((node) => node.id.startsWith('node-'))
+
+    expect(state.ghostNodes).toEqual([])
+    expect(newNode).toBeDefined()
+    expect(newNode?.type).toBe('VALIDATION')
+    expect(newNode?.data.text_content).toBe('Ghost validation')
+    expect(state.edges).toHaveLength(1)
+    expect(state.edges[0]?.source).toBe('parent-1')
+    expect(state.edges[0]?.target).toBe(newNode?.id)
+  })
+
+  it('dismisses ghost nodes', async () => {
+    const { useStore } = await createStore()
+
+    const ghost1 = {
+      id: 'ghost-1',
+      type: 'GHOST' as const,
+      position: { x: 10, y: 20 },
+      data: {
+        parentId: 'parent-1',
+        suggestedType: 'OBSERVATION' as const,
+        text_content: 'Ghost note',
+        ghostId: 'ghost-1',
+      },
+    }
+    const ghost2 = {
+      id: 'ghost-2',
+      type: 'GHOST' as const,
+      position: { x: 30, y: 40 },
+      data: {
+        parentId: 'parent-1',
+        suggestedType: 'MECHANISM' as const,
+        text_content: 'Ghost mechanism',
+        ghostId: 'ghost-2',
+      },
+    }
+
+    useStore.getState().setGhostNodes([ghost1, ghost2])
+
+    useStore.getState().dismissGhostNode('ghost-1')
+
+    expect(useStore.getState().ghostNodes).toEqual([ghost2])
+  })
+
+  it('updates generation and goal state', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().setIsGenerating(true)
+    useStore.getState().setAiError('Error')
+    useStore.getState().setGlobalGoal('Focus on insights')
+
+    expect(useStore.getState().isGenerating).toBe(true)
+    expect(useStore.getState().aiError).toBe('Error')
+    expect(useStore.getState().globalGoal).toBe('Focus on insights')
+
+    useStore.getState().setIsGenerating(false)
+    useStore.getState().setAiError(null)
+    useStore.getState().setGlobalGoal('')
+
+    expect(useStore.getState().isGenerating).toBe(false)
+    expect(useStore.getState().aiError).toBeNull()
+    expect(useStore.getState().globalGoal).toBe('')
+  })
 })
