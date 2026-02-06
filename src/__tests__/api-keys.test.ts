@@ -35,10 +35,12 @@ describe('api keys storage', () => {
       provider: 'openai' as const,
       openaiKey: 'openai-secret',
       anthropicKey: 'anthropic-secret',
+      geminiKey: 'gemini-secret',
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
-      anthropicModel: null
+      anthropicModel: null,
+      geminiModel: null,
     }
 
     const saved = await saveApiKeys(state)
@@ -46,23 +48,28 @@ describe('api keys storage', () => {
 
     const storedOpenAI = storage.getItem(STORAGE_KEYS.openai)
     const storedAnthropic = storage.getItem(STORAGE_KEYS.anthropic)
+    const storedGemini = storage.getItem(STORAGE_KEYS.gemini)
     const storedProvider = storage.getItem(STORAGE_KEYS.provider)
 
     expect(storedProvider).toBe('openai')
     expect(storedOpenAI).not.toBe(state.openaiKey)
     expect(storedAnthropic).not.toBe(state.anthropicKey)
+    expect(storedGemini).not.toBe(state.geminiKey)
     expect(storedOpenAI).toContain(':')
     expect(storedAnthropic).toContain(':')
+    expect(storedGemini).toContain(':')
 
     const loaded = await loadApiKeys()
     expect(loaded).toEqual({
       provider: 'openai',
       openaiKey: 'openai-secret',
       anthropicKey: 'anthropic-secret',
+      geminiKey: 'gemini-secret',
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
-      anthropicModel: null
+      anthropicModel: null,
+      geminiModel: null,
     })
   })
 
@@ -81,15 +88,18 @@ describe('api keys storage', () => {
       provider: null,
       openaiKey: null,
       anthropicKey: null,
+      geminiKey: null,
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
-      anthropicModel: null
+      anthropicModel: null,
+      geminiModel: null,
     })
 
     expect(saved.success).toBe(true)
     expect(storage.getItem(STORAGE_KEYS.openai)).toBeNull()
     expect(storage.getItem(STORAGE_KEYS.anthropic)).toBeNull()
+    expect(storage.getItem(STORAGE_KEYS.gemini)).toBeNull()
     expect(storage.getItem(STORAGE_KEYS.provider)).toBeNull()
   })
 
@@ -105,10 +115,12 @@ describe('api keys storage', () => {
       provider: 'anthropic',
       openaiKey: 'openai-secret',
       anthropicKey: 'anthropic-secret',
+      geminiKey: 'gemini-secret',
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
-      anthropicModel: null
+      anthropicModel: null,
+      geminiModel: null,
     })
 
     expect(saved.success).toBe(false)
@@ -116,10 +128,12 @@ describe('api keys storage', () => {
       provider: null,
       openaiKey: null,
       anthropicKey: null,
+      geminiKey: null,
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
-      anthropicModel: null
+      anthropicModel: null,
+      geminiModel: null,
     })
   })
 })

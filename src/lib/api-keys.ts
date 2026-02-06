@@ -1,33 +1,39 @@
 const OPENAI_KEY_STORAGE = 'stemflow:apikey:openai'
 const ANTHROPIC_KEY_STORAGE = 'stemflow:apikey:anthropic'
+const GEMINI_KEY_STORAGE = 'stemflow:apikey:gemini'
 const OPENAI_BASEURL_STORAGE = 'stemflow:baseurl:openai'
 const ANTHROPIC_BASEURL_STORAGE = 'stemflow:baseurl:anthropic'
 const OPENAI_MODEL_STORAGE = 'stemflow:model:openai'
 const ANTHROPIC_MODEL_STORAGE = 'stemflow:model:anthropic'
+const GEMINI_MODEL_STORAGE = 'stemflow:model:gemini'
 const PROVIDER_STORAGE = 'stemflow:provider'
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
 
-export type ApiProvider = 'openai' | 'anthropic' | 'openai-compatible'
+export type ApiProvider = 'openai' | 'anthropic' | 'openai-compatible' | 'gemini'
 
 export interface ApiKeyState {
   provider: ApiProvider | null
   openaiKey: string | null
   anthropicKey: string | null
+  geminiKey: string | null
   openaiBaseUrl: string | null
   anthropicBaseUrl: string | null
   openaiModel: string | null
   anthropicModel: string | null
+  geminiModel: string | null
 }
 
 export const STORAGE_KEYS = {
   openai: OPENAI_KEY_STORAGE,
   anthropic: ANTHROPIC_KEY_STORAGE,
+  gemini: GEMINI_KEY_STORAGE,
   openaiBaseUrl: OPENAI_BASEURL_STORAGE,
   anthropicBaseUrl: ANTHROPIC_BASEURL_STORAGE,
   openaiModel: OPENAI_MODEL_STORAGE,
   anthropicModel: ANTHROPIC_MODEL_STORAGE,
+  geminiModel: GEMINI_MODEL_STORAGE,
   provider: PROVIDER_STORAGE
 } as const
 
@@ -192,6 +198,15 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
       storage.removeItem(ANTHROPIC_KEY_STORAGE)
     }
 
+    if (state.geminiKey) {
+      storage.setItem(
+        GEMINI_KEY_STORAGE,
+        await encryptString(state.geminiKey, key)
+      )
+    } else {
+      storage.removeItem(GEMINI_KEY_STORAGE)
+    }
+
     if (state.provider) {
       storage.setItem(PROVIDER_STORAGE, state.provider)
     } else {
@@ -221,6 +236,12 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
       storage.setItem(ANTHROPIC_MODEL_STORAGE, state.anthropicModel)
     } else {
       storage.removeItem(ANTHROPIC_MODEL_STORAGE)
+    }
+
+    if (state.geminiModel) {
+      storage.setItem(GEMINI_MODEL_STORAGE, state.geminiModel)
+    } else {
+      storage.removeItem(GEMINI_MODEL_STORAGE)
     }
 
     return { success: true }
@@ -256,7 +277,7 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
 export const loadApiKeys = async (): Promise<ApiKeyState> => {
   const storage = getStorage()
   if (!storage) {
-    return { provider: null, openaiKey: null, anthropicKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null }
+    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null }
   }
 
   try {
@@ -264,25 +285,30 @@ export const loadApiKeys = async (): Promise<ApiKeyState> => {
     const providerValue = storage.getItem(PROVIDER_STORAGE)
     const openaiCipher = storage.getItem(OPENAI_KEY_STORAGE)
     const anthropicCipher = storage.getItem(ANTHROPIC_KEY_STORAGE)
+    const geminiCipher = storage.getItem(GEMINI_KEY_STORAGE)
     const openaiBaseUrl = storage.getItem(OPENAI_BASEURL_STORAGE)
     const anthropicBaseUrl = storage.getItem(ANTHROPIC_BASEURL_STORAGE)
     const openaiModel = storage.getItem(OPENAI_MODEL_STORAGE)
     const anthropicModel = storage.getItem(ANTHROPIC_MODEL_STORAGE)
+    const geminiModel = storage.getItem(GEMINI_MODEL_STORAGE)
 
-    const [openaiKey, anthropicKey] = await Promise.all([
+    const [openaiKey, anthropicKey, geminiKey] = await Promise.all([
       openaiCipher ? decryptString(openaiCipher, key) : Promise.resolve(null),
       anthropicCipher
         ? decryptString(anthropicCipher, key)
+        : Promise.resolve(null),
+      geminiCipher
+        ? decryptString(geminiCipher, key)
         : Promise.resolve(null)
     ])
 
     const provider =
-      providerValue === 'openai' || providerValue === 'anthropic' || providerValue === 'openai-compatible'
+      providerValue === 'openai' || providerValue === 'anthropic' || providerValue === 'openai-compatible' || providerValue === 'gemini'
         ? providerValue
         : null
 
-    return { provider, openaiKey, anthropicKey, openaiBaseUrl, anthropicBaseUrl, openaiModel, anthropicModel }
+    return { provider, openaiKey, anthropicKey, geminiKey, openaiBaseUrl, anthropicBaseUrl, openaiModel, anthropicModel, geminiModel }
   } catch {
-    return { provider: null, openaiKey: null, anthropicKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null }
+    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null }
   }
 }

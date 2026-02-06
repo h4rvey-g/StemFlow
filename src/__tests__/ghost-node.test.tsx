@@ -8,10 +8,11 @@ const mockAcceptGhostNode = vi.fn()
 const mockDismissGhostNode = vi.fn()
 
 vi.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    acceptGhostNode: mockAcceptGhostNode,
-    dismissGhostNode: mockDismissGhostNode,
-  }),
+  useStore: (selector: any) =>
+    selector({
+      acceptGhostNode: mockAcceptGhostNode,
+      dismissGhostNode: mockDismissGhostNode,
+    }),
 }))
 
 const renderWithProvider = (component: React.ReactNode) => {
@@ -47,7 +48,7 @@ describe('GhostNode', () => {
     expect(screen.getByText('This is a suggested observation')).toBeInTheDocument()
     
     const container = screen.getByText('SUGGESTED OBSERVATION').closest('div')?.parentElement
-    expect(container).toHaveClass('border-blue-400')
+    expect(container).toHaveClass('border-dashed')
   })
 
   it('renders correctly with mechanism styling', () => {
@@ -62,7 +63,7 @@ describe('GhostNode', () => {
     
     expect(screen.getByText('SUGGESTED MECHANISM')).toBeInTheDocument()
     const container = screen.getByText('SUGGESTED MECHANISM').closest('div')?.parentElement
-    expect(container).toHaveClass('border-purple-400')
+    expect(container).toHaveClass('border-dashed')
   })
 
   it('calls acceptGhostNode when accept button is clicked', () => {

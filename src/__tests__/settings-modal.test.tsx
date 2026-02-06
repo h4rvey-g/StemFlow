@@ -19,6 +19,12 @@ describe('SettingsModal', () => {
       provider: 'openai',
       openaiKey: null,
       anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
     })
   })
 
@@ -32,7 +38,13 @@ describe('SettingsModal', () => {
       provider: 'openai',
       openaiKey: 'sk-existing',
       anthropicKey: null,
-    })
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
+      })
 
     render(<SettingsModal isOpen={true} onClose={onClose} />)
     
@@ -48,6 +60,12 @@ describe('SettingsModal', () => {
       provider: 'openai',
       openaiKey: 'sk-openai-key',
       anthropicKey: 'sk-anthropic-key',
+      geminiKey: 'AIza-gemini-key',
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
     })
 
     render(<SettingsModal isOpen={true} onClose={onClose} />)
@@ -56,18 +74,24 @@ describe('SettingsModal', () => {
       expect(screen.getByPlaceholderText(/sk-/)).toHaveValue('sk-openai-key')
     })
 
-    const select = screen.getByRole('combobox')
+    const select = screen.getByLabelText('AI Provider')
     await userEvent.selectOptions(select, 'anthropic')
 
     expect(screen.getByPlaceholderText(/sk-ant-/)).toHaveValue('sk-anthropic-key')
+
+    await userEvent.selectOptions(select, 'gemini')
+    expect(screen.getByPlaceholderText(/AIza/)).toHaveValue('AIza-gemini-key')
   })
 
   it('saves api keys', async () => {
-    ;(saveApiKeys as Mock).mockResolvedValue(true)
+    ;(saveApiKeys as Mock).mockResolvedValue({ success: true })
     
     render(<SettingsModal isOpen={true} onClose={onClose} />)
     
     await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    const select = screen.getByLabelText('AI Provider')
+    await userEvent.selectOptions(select, 'openai')
 
     const input = screen.getByPlaceholderText(/sk-/)
     await userEvent.clear(input)

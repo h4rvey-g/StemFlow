@@ -4,17 +4,36 @@ import type { Connection, EdgeChange, NodeChange } from 'reactflow'
 
 import type { DbNode } from '@/lib/db'
 import { db } from '@/lib/db'
-import type { GhostNode, GhostNodeData, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
+import type { GhostEdge, GhostNode, GhostNodeData, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 
 export type { NodeType, OMVNode } from '@/types/nodes'
 
 let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
+const GLOBAL_GOAL_STORAGE = 'stemflow:globalGoal'
+
+const loadGlobalGoal = (): string => {
+  if (typeof window === 'undefined') return ''
+  try {
+    return window.localStorage.getItem(GLOBAL_GOAL_STORAGE) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 const schedulePersist = (nodes: OMVNode[], edges: OMVEdge[]) => {
+  const parentMap = new Map<string, Set<string>>()
+  edges.forEach((edge) => {
+    if (!edge.source || !edge.target) return
+    const set = parentMap.get(edge.target) ?? new Set<string>()
+    set.add(edge.source)
+    parentMap.set(edge.target, set)
+  })
+
   const dbNodes: DbNode[] = nodes.map((node) => ({
     ...node,
-    parentIds: [],
+    parentIds: Array.from(parentMap.get(node.id) ?? []),
   }))
   if (persistTimeout) {
     clearTimeout(persistTimeout)
@@ -42,6 +61,7 @@ export interface StoreState {
   nodes: OMVNode[]
   edges: OMVEdge[]
   ghostNodes: GhostNode[]
+  ghostEdges: GhostEdge[]
   isGenerating: boolean
   aiError: string | null
   globalGoal: string
@@ -57,8 +77,10 @@ export interface StoreState {
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (connection: Connection) => void
   setGhostNodes: (nodes: GhostNode[]) => void
+  setGhostSuggestions: (nodes: GhostNode[], edges: GhostEdge[]) => void
   acceptGhostNode: (ghostId: string) => void
   dismissGhostNode: (ghostId: string) => void
+  dismissAllGhostNodes: () => void
   setIsGenerating: (value: boolean) => void
   setAiError: (error: string | null) => void
   setGlobalGoal: (goal: string) => void
@@ -69,9 +91,10 @@ export const useStore = create<StoreState>((set) => ({
   nodes: [],
   edges: [],
   ghostNodes: [],
+  ghostEdges: [],
   isGenerating: false,
   aiError: null,
-  globalGoal: '',
+  globalGoal: loadGlobalGoal(),
   isLoading: false,
   loadFromDb: async () => {
     set({ isLoading: true })
@@ -79,8 +102,7 @@ export const useStore = create<StoreState>((set) => ({
       db.nodes.toArray(),
       db.edges.toArray(),
     ])
-    const nodes = dbNodes.map(({ parentIds: _parentIds, ...node }) => node)
-    set({ nodes, edges, isLoading: false })
+    set({ nodes: dbNodes, edges, isLoading: false })
   },
   addNode: (node) => {
     set((state) => {
@@ -158,9 +180,17 @@ export const useStore = create<StoreState>((set) => ({
   },
   onEdgesChange: (changes) => {
     set((state) => {
-      const edges = applyEdgeChanges(changes, state.edges) as OMVEdge[]
+      const ghostChanges = changes.filter(
+        (change) => 'id' in change && typeof change.id === 'string' && change.id.startsWith('ghost-edge-')
+      )
+      const nonGhostChanges = changes.filter(
+        (change) => !('id' in change && typeof change.id === 'string' && change.id.startsWith('ghost-edge-'))
+      )
+
+      const edges = applyEdgeChanges(nonGhostChanges, state.edges) as OMVEdge[]
+      const ghostEdges = applyEdgeChanges(ghostChanges, state.ghostEdges) as GhostEdge[]
       schedulePersist(state.nodes, edges)
-      return { edges }
+      return { edges, ghostEdges }
     })
   },
   onConnect: (connection) => {
@@ -171,11 +201,12 @@ export const useStore = create<StoreState>((set) => ({
     })
   },
   setGhostNodes: (ghostNodes) => {
-    console.log('[Store] setGhostNodes called with:', ghostNodes)
     set(() => {
-      console.log('[Store] Setting ghostNodes in state')
       return { ghostNodes }
     })
+  },
+  setGhostSuggestions: (ghostNodes, ghostEdges) => {
+    set(() => ({ ghostNodes, ghostEdges }))
   },
   acceptGhostNode: (ghostId) => {
     set((state) => {
@@ -203,16 +234,21 @@ export const useStore = create<StoreState>((set) => ({
         state.edges
       )
       const ghostNodes = state.ghostNodes.filter((node) => node.id !== ghostId)
+      const ghostEdges = state.ghostEdges.filter((edge) => edge.target !== ghostId)
 
       schedulePersist(nodes, edges)
 
-      return { nodes, edges, ghostNodes }
+      return { nodes, edges, ghostNodes, ghostEdges }
     })
   },
   dismissGhostNode: (ghostId) => {
     set((state) => ({
       ghostNodes: state.ghostNodes.filter((node) => node.id !== ghostId),
+      ghostEdges: state.ghostEdges.filter((edge) => edge.target !== ghostId),
     }))
+  },
+  dismissAllGhostNodes: () => {
+    set(() => ({ ghostNodes: [], ghostEdges: [] }))
   },
   setIsGenerating: (value) => {
     set(() => ({ isGenerating: value }))
@@ -221,9 +257,16 @@ export const useStore = create<StoreState>((set) => ({
     set(() => ({ aiError: error }))
   },
   setGlobalGoal: (goal) => {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(GLOBAL_GOAL_STORAGE, goal)
+      } catch {
+        // ignore
+      }
+    }
     set(() => ({ globalGoal: goal }))
   },
   clearGhostNodes: () => {
-    set(() => ({ ghostNodes: [] }))
+    set(() => ({ ghostNodes: [], ghostEdges: [] }))
   },
 }))

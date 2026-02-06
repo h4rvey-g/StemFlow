@@ -35,7 +35,9 @@ describe('ai service', () => {
     
     vi.mocked(generateText).mockResolvedValue({
       text: JSON.stringify([
-        { type: 'OBSERVATION', text_content: 'Check dataset drift.' }
+        { type: 'OBSERVATION', text_content: 'Check dataset drift.' },
+        { type: 'MECHANISM', text_content: 'Hypothesize a causal driver.' },
+        { type: 'VALIDATION', text_content: 'Run a controlled experiment.' }
       ]),
       finishReason: 'stop',
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
@@ -49,7 +51,9 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'OBSERVATION', text_content: 'Check dataset drift.' }
+      { type: 'MECHANISM', text_content: 'Check dataset drift.' },
+      { type: 'MECHANISM', text_content: 'Hypothesize a causal driver.' },
+      { type: 'MECHANISM', text_content: 'Run a controlled experiment.' }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
   })
@@ -59,7 +63,9 @@ describe('ai service', () => {
     
     vi.mocked(generateText).mockResolvedValue({
       text: JSON.stringify([
-        { type: 'MECHANISM', text_content: 'Hypothesize signal leakage.' }
+        { type: 'MECHANISM', text_content: 'Hypothesize signal leakage.' },
+        { type: 'VALIDATION', text_content: 'Test on a holdout split.' },
+        { type: 'OBSERVATION', text_content: 'Collect a new sample.' }
       ]),
       finishReason: 'stop',
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
@@ -73,7 +79,9 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'MECHANISM', text_content: 'Hypothesize signal leakage.' }
+      { type: 'VALIDATION', text_content: 'Hypothesize signal leakage.' },
+      { type: 'VALIDATION', text_content: 'Test on a holdout split.' },
+      { type: 'VALIDATION', text_content: 'Collect a new sample.' }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
   })
@@ -127,7 +135,9 @@ describe('ai service', () => {
     
     vi.mocked(generateText).mockResolvedValue({
       text: JSON.stringify([
-        { type: 'VALIDATION', text_content: 'Run A/B test.' }
+        { type: 'VALIDATION', text_content: 'Run A/B test.' },
+        { type: 'MECHANISM', text_content: 'Explain the effect size.' },
+        { type: 'OBSERVATION', text_content: 'Collect baseline metrics.' }
       ]),
       finishReason: 'stop',
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
@@ -143,8 +153,29 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'VALIDATION', text_content: 'Run A/B test.' }
+      { type: 'OBSERVATION', text_content: 'Run A/B test.' },
+      { type: 'OBSERVATION', text_content: 'Explain the effect size.' },
+      { type: 'OBSERVATION', text_content: 'Collect baseline metrics.' }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws when fewer than 3 steps are returned', async () => {
+    const { generateText } = await import('ai')
+
+    vi.mocked(generateText).mockResolvedValue({
+      text: JSON.stringify([{ type: 'OBSERVATION', text_content: 'Only one.' }]),
+      finishReason: 'stop',
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
+    } as any)
+
+    await expect(
+      generateNextSteps(
+        [createNode('1', 'OBSERVATION', 'Initial finding')],
+        'Goal',
+        'openai',
+        'sk-test'
+      )
+    ).rejects.toThrow('AI returned fewer than 3 suggestions')
   })
 })

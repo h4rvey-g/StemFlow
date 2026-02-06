@@ -1,6 +1,9 @@
 import { getIncomers } from 'reactflow'
 
 import type { OMVEdge, OMVNode } from '@/types/nodes'
+import { isConnectionSuggested } from '@/lib/connection-rules'
+
+import type { Connection } from 'reactflow'
 
 const MAX_ANCESTRY_DEPTH = 50
 
@@ -52,3 +55,17 @@ export const formatAncestryForPrompt = (nodes: OMVNode[]): string =>
       return `[${node.type}] Node #${index + 1}:\n${text}\n\n`
     })
     .join('')
+
+export const getConnectionHighlight = (
+  connection: Pick<Connection, 'source' | 'target'>,
+  nodes: OMVNode[]
+): 'suggested' | 'allowed' | null => {
+  if (!connection.source || !connection.target) return null
+
+  const sourceNode = nodes.find((node) => node.id === connection.source)
+  const targetNode = nodes.find((node) => node.id === connection.target)
+
+  if (!sourceNode || !targetNode) return null
+
+  return isConnectionSuggested(sourceNode.type, targetNode.type) ? 'suggested' : 'allowed'
+}

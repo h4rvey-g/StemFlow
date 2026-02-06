@@ -10,13 +10,14 @@ test.describe('AI Generation Flow', () => {
           choices: [{
             message: {
               content: JSON.stringify([
-                { type: 'MECHANISM', text_content: 'AI suggested mechanism' },
-                { type: 'VALIDATION', text_content: 'AI suggested validation' }
-              ])
-            }
-          }]
-        })
-      })
+                 { type: 'MECHANISM', text_content: 'AI suggested mechanism' },
+                 { type: 'VALIDATION', text_content: 'AI suggested validation' },
+                 { type: 'OBSERVATION', text_content: 'AI suggested observation' }
+               ])
+             }
+           }]
+         })
+       })
     })
 
     await page.route('**/api.anthropic.com/**', async (route) => {
@@ -25,13 +26,14 @@ test.describe('AI Generation Flow', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           content: [{
-            text: JSON.stringify([
-              { type: 'MECHANISM', text_content: 'AI suggested mechanism' },
-              { type: 'VALIDATION', text_content: 'AI suggested validation' }
-            ])
-          }]
-        })
-      })
+             text: JSON.stringify([
+               { type: 'MECHANISM', text_content: 'AI suggested mechanism' },
+               { type: 'VALIDATION', text_content: 'AI suggested validation' },
+               { type: 'OBSERVATION', text_content: 'AI suggested observation' }
+             ])
+           }]
+         })
+       })
     })
 
     await page.goto('/', { waitUntil: 'networkidle' })
@@ -42,7 +44,9 @@ test.describe('AI Generation Flow', () => {
     const observationTile = page.getByTestId('sidebar-observation')
     await observationTile.dragTo(canvas, { targetPosition: { x: 200, y: 200 } })
 
-    const node = page.locator('div.react-flow__node:has-text("OBSERVATION")').first()
+    const node = page.locator('div.react-flow__node:has-text("Observation")').first()
+    await node.click({ position: { x: 10, y: 10 } })
+    await expect(node).toHaveClass(/selected/)
     await expect(node.getByRole('button', { name: /generate/i })).toBeVisible()
   })
 
@@ -51,7 +55,9 @@ test.describe('AI Generation Flow', () => {
     const mechanismTile = page.getByTestId('sidebar-mechanism')
     await mechanismTile.dragTo(canvas, { targetPosition: { x: 200, y: 200 } })
 
-    const node = page.locator('div.react-flow__node:has-text("MECHANISM")').first()
+    const node = page.locator('div.react-flow__node:has-text("Mechanism")').first()
+    await node.click({ position: { x: 10, y: 10 } })
+    await expect(node).toHaveClass(/selected/)
     await expect(node.getByRole('button', { name: /generate/i })).toBeVisible()
   })
 
@@ -60,17 +66,16 @@ test.describe('AI Generation Flow', () => {
     const validationTile = page.getByTestId('sidebar-validation')
     await validationTile.dragTo(canvas, { targetPosition: { x: 200, y: 200 } })
 
-    const node = page.locator('div.react-flow__node:has-text("VALIDATION")').first()
+    const node = page.locator('div.react-flow__node:has-text("Validation")').first()
+    await node.click({ position: { x: 10, y: 10 } })
+    await expect(node).toHaveClass(/selected/)
     await expect(node.getByRole('button', { name: /generate/i })).toBeVisible()
   })
 
   test('settings modal allows API key configuration', async ({ page }) => {
-    const settingsButton = page.locator('[data-testid="settings-button"]').or(
-      page.locator('button').filter({ has: page.locator('svg') }).first()
-    )
-    await settingsButton.click()
-
-    await expect(page.getByText('Settings')).toBeVisible()
+    await page.getByTestId('sidebar-settings').click()
+    await expect(page.getByTestId('settings-modal')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
     await expect(page.getByRole('combobox')).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
   })

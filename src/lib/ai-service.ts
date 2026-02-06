@@ -11,7 +11,7 @@ export interface GeneratedStep {
   text_content: string
 }
 
-const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
+const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 
 const getMaxOutputTokens = (modelId: string): number => {
@@ -31,6 +31,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isNodeType = (value: unknown): value is NodeType =>
   value === 'OBSERVATION' || value === 'MECHANISM' || value === 'VALIDATION'
+
+const getExpectedNextType = (currentType: NodeType): NodeType | null => {
+  if (currentType === 'OBSERVATION') return 'MECHANISM'
+  if (currentType === 'MECHANISM') return 'VALIDATION'
+  if (currentType === 'VALIDATION') return 'OBSERVATION'
+  return null
+}
 
 const extractJsonPayload = (content: string): string => {
   // Try to extract JSON from markdown code blocks
@@ -53,8 +60,6 @@ const extractJsonPayload = (content: string): string => {
 }
 
 const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
-  console.log('[AI Service] Parsing payload:', payload)
-  
   const list = Array.isArray(payload)
     ? payload
     : isRecord(payload) && Array.isArray(payload.steps)
@@ -71,11 +76,7 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
     throw new Error('Failed to parse AI response')
   }
 
-  console.log('[AI Service] Processing list with', list.length, 'items')
-
   return list.map((item, index) => {
-    console.log(`[AI Service] Processing item ${index}:`, item)
-    
     if (!isRecord(item)) {
       console.error(`[AI Service] Item ${index} is not a record:`, typeof item, item)
       throw new Error('Failed to parse AI response')
@@ -100,12 +101,15 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
       throw new Error('Failed to parse AI response')
     }
 
-    console.log(`[AI Service] Item ${index} validated successfully`)
     return { type, text_content }
   })
 }
 
-const buildPrompt = (ancestry: OMVNode[], globalGoal: string): string => {
+const buildPrompt = (
+  ancestry: OMVNode[],
+  globalGoal: string,
+  expectedNextType: NodeType | null
+): string => {
   const ancestryContext = formatAncestryForPrompt(ancestry)
   const goal = globalGoal.trim() || 'No global goal provided.'
   const context = ancestryContext.trim() || 'No ancestry context provided.'
@@ -115,6 +119,9 @@ const buildPrompt = (ancestry: OMVNode[], globalGoal: string): string => {
     `Global research goal:\n${goal}`,
     `Ancestry context:\n${context}`,
     'Suggest 1 to 3 next steps in the OMV framework.',
+    expectedNextType
+      ? `STRICT SEQUENCE RULE: The current node is ${ancestry[ancestry.length - 1]?.type}. Every suggested step MUST have type "${expectedNextType}".`
+      : 'Follow the OMV sequence based on the current context.',
     '',
     'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
     'Format: [{"type": "OBSERVATION", "text_content": "description"}, ...]',
@@ -133,7 +140,9 @@ export async function generateNextSteps(
   model?: string | null,
   baseUrl?: string | null
 ): Promise<GeneratedStep[]> {
-  const prompt = buildPrompt(ancestry, globalGoal)
+  const currentNode = ancestry[ancestry.length - 1]
+  const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
+  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType)
 
   try {
     let content: string
@@ -187,7 +196,17 @@ export async function generateNextSteps(
       throw new Error('Failed to parse AI response')
     }
 
-    return toGeneratedSteps(parsed)
+    const steps = toGeneratedSteps(parsed)
+
+    if (steps.length < 3) {
+      throw new Error('AI returned fewer than 3 suggestions')
+    }
+
+    const normalizedSteps = expectedNextType
+      ? steps.map((step) => ({ ...step, type: expectedNextType }))
+      : steps
+
+    return normalizedSteps.slice(0, 3)
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes('401') || error.message.includes('403') || error.message.includes('API key')) {

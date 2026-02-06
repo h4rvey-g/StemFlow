@@ -12,6 +12,7 @@ vi.mock('@/lib/graph')
 
 describe('useGenerate', () => {
   const mockSetGhostNodes = vi.fn()
+  const mockSetGhostSuggestions = vi.fn()
   const mockSetIsGenerating = vi.fn()
   const mockSetAiError = vi.fn()
 
@@ -29,6 +30,7 @@ describe('useGenerate', () => {
       edges: [],
       globalGoal: 'Test goal',
       setGhostNodes: mockSetGhostNodes,
+      setGhostSuggestions: mockSetGhostSuggestions,
       setIsGenerating: mockSetIsGenerating,
       setAiError: mockSetAiError,
       isGenerating: false,
@@ -40,10 +42,12 @@ describe('useGenerate', () => {
       provider: 'openai',
       openaiKey: 'sk-test',
       anthropicKey: null,
+      geminiKey: null,
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
       anthropicModel: null,
+      geminiModel: null,
     })
 
     vi.spyOn(graph, 'getNodeAncestry').mockReturnValue([
@@ -57,6 +61,8 @@ describe('useGenerate', () => {
 
     vi.spyOn(aiService, 'generateNextSteps').mockResolvedValue([
       { type: 'MECHANISM', text_content: 'Suggested mechanism' },
+      { type: 'VALIDATION', text_content: 'Suggested validation' },
+      { type: 'OBSERVATION', text_content: 'Suggested observation' },
     ])
 
     const { result } = renderHook(() => useGenerate())
@@ -77,15 +83,24 @@ describe('useGenerate', () => {
       null,
       null
     )
-    expect(mockSetGhostNodes).toHaveBeenCalledWith(
+    expect(mockSetGhostSuggestions).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
-          parentId: 'node-1',
-          suggestedType: 'MECHANISM',
-          text_content: 'Suggested mechanism',
+          type: 'GHOST',
           position: { x: 100, y: 350 },
+          data: expect.objectContaining({
+            parentId: 'node-1',
+            suggestedType: 'MECHANISM',
+            text_content: 'Suggested mechanism',
+          }),
         }),
-      ])
+      ]),
+      expect.any(Array)
+    )
+
+    expect(mockSetGhostSuggestions).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.any(Object), expect.any(Object), expect.any(Object)]),
+      expect.any(Array)
     )
     expect(mockSetIsGenerating).toHaveBeenCalledWith(false)
   })
@@ -93,12 +108,14 @@ describe('useGenerate', () => {
   it('should handle missing API keys', async () => {
     vi.spyOn(apiKeys, 'loadApiKeys').mockResolvedValue({
       provider: 'openai',
-      openaiKey: 'sk-test',
+      openaiKey: null,
       anthropicKey: null,
+      geminiKey: null,
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
       anthropicModel: null,
+      geminiModel: null,
     })
 
     const { result } = renderHook(() => useGenerate())
@@ -107,7 +124,8 @@ describe('useGenerate', () => {
       await result.current.generate('node-1')
     })
 
-    expect(mockSetAiError).toHaveBeenCalledWith('No API key found. Please configure settings.')
+    expect(mockSetAiError).toHaveBeenCalledWith(null)
+    expect(mockSetAiError).toHaveBeenLastCalledWith('No API key found. Please configure settings.')
     expect(mockSetIsGenerating).toHaveBeenCalledWith(false)
   })
 
@@ -116,10 +134,12 @@ describe('useGenerate', () => {
       provider: 'openai',
       openaiKey: 'sk-test',
       anthropicKey: null,
+      geminiKey: null,
       openaiBaseUrl: null,
       anthropicBaseUrl: null,
       openaiModel: null,
       anthropicModel: null,
+      geminiModel: null,
     })
 
     vi.spyOn(aiService, 'generateNextSteps').mockRejectedValue(new Error('AI Error'))

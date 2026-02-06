@@ -4,9 +4,9 @@ import { useStore } from '@/stores/useStore'
 import type { GhostNodeData } from '@/types/nodes'
 
 const typeColors: Record<string, string> = {
-  OBSERVATION: 'border-blue-400 text-blue-600',
-  MECHANISM: 'border-purple-400 text-purple-600',
-  VALIDATION: 'border-green-400 text-green-600',
+  OBSERVATION: 'text-blue-700',
+  MECHANISM: 'text-violet-700',
+  VALIDATION: 'text-emerald-700',
 }
 
 const typeLabels: Record<string, string> = {
@@ -16,7 +16,6 @@ const typeLabels: Record<string, string> = {
 }
 
 export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>) => {
-  console.log('[GhostNode] Rendering:', data?.ghostId, data?.suggestedType)
   const { text_content, suggestedType, ghostId } = data
   const acceptGhostNode = useStore((s) => s.acceptGhostNode)
   const dismissGhostNode = useStore((s) => s.dismissGhostNode)
@@ -24,16 +23,16 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
   const handleAccept = useCallback(() => acceptGhostNode(ghostId), [acceptGhostNode, ghostId])
   const handleDismiss = useCallback(() => dismissGhostNode(ghostId), [dismissGhostNode, ghostId])
   
-  const colorClass = typeColors[suggestedType] || 'border-gray-400 text-gray-600'
+  const colorClass = typeColors[suggestedType] || 'text-slate-700'
 
   return (
     <div
-      className={`min-w-[180px] rounded-xl bg-yellow-200 border-4 border-solid border-red-500 ${colorClass} p-3 shadow-xl`}
+      className={`min-w-[180px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80`}
       style={{ zIndex: 9999 }}
     >
       <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
       
-      <div className={`text-xs font-bold mb-1 ${colorClass.split(' ')[1]}`}>
+      <div className={`text-xs font-bold mb-1 ${colorClass}`}>
         {typeLabels[suggestedType]}
       </div>
       
@@ -58,7 +57,7 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
         </button>
       </div>
 
-      <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} />
+      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   )
 })

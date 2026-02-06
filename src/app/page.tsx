@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useRef, useEffect, useMemo } from 'react'
+import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react'
 import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
@@ -8,6 +8,7 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  type OnConnectStart,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -18,8 +19,9 @@ import { ObservationNode } from '@/components/nodes/ObservationNode'
 import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
+import { getSuggestedTargetTypes } from '@/lib/connection-rules'
 
-const DEBUG_GHOSTS = true
+const DEBUG_GHOSTS = false
 
 const nodeTypes = {
   OBSERVATION: ObservationNode,
@@ -36,10 +38,9 @@ function Canvas() {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const ghostNodes = useStore((s) => s.ghostNodes)
+  const ghostEdges = useStore((s) => s.ghostEdges)
+  const [connectingFromType, setConnectingFromType] = useState<NodeType | null>(null)
   
-  if (DEBUG_GHOSTS) {
-    console.log('[Canvas] ghostNodes from store:', ghostNodes.length, ghostNodes)
-  }
   const aiError = useStore((s) => s.aiError)
   const onNodesChange = useStore((s) => s.onNodesChange)
   const onEdgesChange = useStore((s) => s.onEdgesChange)
@@ -86,23 +87,36 @@ function Canvas() {
   )
 
   const allNodes = useMemo(() => {
-    if (DEBUG_GHOSTS) {
-      console.log('[Canvas] Computing allNodes, nodes:', nodes.length, 'ghosts:', ghostNodes.length)
-      console.log('[Canvas] Ghost positions:', ghostNodes.map((g) => ({ id: g.id, pos: g.position })))
-      const invalidGhosts = ghostNodes.filter(
-        (g) => !Number.isFinite(g.position?.x) || !Number.isFinite(g.position?.y)
-      )
-      if (invalidGhosts.length > 0) {
-        console.warn('[Canvas] Ghost nodes with invalid positions:', invalidGhosts)
-      }
-    }
-    return [...nodes, ...ghostNodes]
-  }, [nodes, ghostNodes])
+    const suggestedTargets = connectingFromType ? getSuggestedTargetTypes(connectingFromType) : []
 
-  useEffect(() => {
-    if (!DEBUG_GHOSTS || ghostNodes.length === 0) return
-    fitView({ nodes: ghostNodes, padding: 0.2, duration: 200 })
-  }, [fitView, ghostNodes])
+    const decorated = nodes.map((node) => {
+      if (suggestedTargets.includes(node.type)) {
+        return {
+          ...node,
+          className: `${node.className ?? ''} ring-2 ring-indigo-400 ring-offset-2`,
+        }
+      }
+      return node
+    })
+
+    return [...decorated, ...ghostNodes]
+  }, [nodes, ghostNodes, connectingFromType])
+
+  const handleConnectStart: OnConnectStart = useCallback(
+    (_event, params) => {
+      if (params.handleType !== 'source' || !params.nodeId) return
+
+      const source = nodes.find((n) => n.id === params.nodeId)
+      setConnectingFromType((source?.type as NodeType) ?? null)
+    },
+    [nodes]
+  )
+
+  const handleConnectEnd = useCallback(() => {
+    setConnectingFromType(null)
+  }, [])
+
+  void fitView
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100">
@@ -132,13 +146,15 @@ function Canvas() {
               {aiError}
             </div>
           )}
-          <ReactFlow
-            nodes={allNodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            nodeTypes={nodeTypes}
+           <ReactFlow
+             nodes={allNodes}
+             edges={[...edges, ...ghostEdges]}
+             onNodesChange={onNodesChange}
+             onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onConnectStart={handleConnectStart}
+              onConnectEnd={handleConnectEnd}
+              nodeTypes={nodeTypes}
             onDrop={onDrop}
             onDragOver={onDragOver}
             fitView

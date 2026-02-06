@@ -14,7 +14,7 @@ export default defineConfig({
     coverage: {
       reporter: ['text', 'lcov'],
     },
-    include: ['src/__tests__/**/*.{test,spec}.ts?(x)'],
+    include: ['src/**/*.{test,spec}.ts?(x)'],
     exclude: ['e2e/**'],
     testTimeout: 10000,
   },

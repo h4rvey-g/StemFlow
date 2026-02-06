@@ -1,12 +1,19 @@
-import React, { memo } from 'react'
+import React, { memo, useEffect, useRef, useState } from 'react'
 import type { NodeProps } from 'reactflow'
 import { Handle, Position } from 'reactflow'
 import { useStore } from '@/stores/useStore'
-import { useGenerate } from '@/hooks/useGenerate'
+import { useAiGeneration } from '@/hooks/useAiGeneration'
+import { NodePopover } from '@/components/ui/NodePopover'
 
-export const MechanismNode = memo(({ id, data, isConnectable }: NodeProps<{ text_content: string }>) => {
+export const MechanismNode = memo(({ id, data, isConnectable, selected }: NodeProps<{ text_content: string }>) => {
   const updateNode = useStore((state) => state.updateNode)
-  const { generate, isGenerating } = useGenerate()
+  const { generate, isGenerating } = useAiGeneration()
+  const aiButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
+
+  useEffect(() => {
+    if (!selected) setAiOpen(false)
+  }, [selected])
 
   const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     updateNode(id, { data: { text_content: event.target.value } })
@@ -23,13 +30,35 @@ export const MechanismNode = memo(({ id, data, isConnectable }: NodeProps<{ text
         placeholder="Describe the mechanism"
         rows={3}
       />
-      <button
-        className="nodrag mt-2 w-full rounded-md bg-indigo-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:opacity-50"
-        onClick={() => generate(id)}
-        disabled={isGenerating}
-      >
-        {isGenerating ? 'Generating...' : 'Generate'}
-      </button>
+      {selected && (
+        <div className="nodrag mt-2 flex gap-2">
+          <button
+            className="flex-1 rounded-md bg-indigo-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:opacity-50"
+            onClick={() => generate(id)}
+            disabled={isGenerating}
+          >
+            {isGenerating ? 'Generating...' : 'Generate'}
+          </button>
+          <button
+            ref={aiButtonRef}
+            type="button"
+            className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
+            aria-label="AI Actions"
+            onClick={() => setAiOpen((v) => !v)}
+          >
+            AI
+          </button>
+          {aiOpen && aiButtonRef.current ? (
+            <NodePopover
+              nodeId={id}
+              nodeType="MECHANISM"
+              isOpen={aiOpen}
+              onClose={() => setAiOpen(false)}
+              anchorEl={aiButtonRef.current}
+            />
+          ) : null}
+        </div>
+      )}
       <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} />
     </div>
   )

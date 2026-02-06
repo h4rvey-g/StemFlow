@@ -19,9 +19,17 @@ export type GhostNode = Node<GhostNodeData> & {
 
 export type OMVNode = Node<NodeData> & {
   type: NodeType
+  parentIds?: string[]
 }
 
 export type OMVEdge = Edge
+
+export type GhostEdge = Edge & {
+  id: `ghost-edge-${string}`
+  data?: {
+    ghost?: true
+  }
+}
 
 export interface Project {
   id: string

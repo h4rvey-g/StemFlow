@@ -1,0 +1,212 @@
+import { useCallback, useMemo, useRef } from 'react'
+
+import { loadApiKeys } from '@/lib/api-keys'
+import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
+import type { AiAction, AiError, AiMessage, AiProvider } from '@/lib/ai/types'
+import { AiError as AiErrorClass } from '@/lib/ai/types'
+import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
+import { useAiStore } from '@/stores/useAiStore'
+import { useStore } from '@/stores/useStore'
+import type { OMVEdge, OMVNode } from '@/types/nodes'
+
+const DEFAULT_OPENAI_MODEL = 'gpt-4o'
+const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
+
+const POSITION_OFFSET = { x: 220, y: 180 }
+
+const actionInstruction: Record<AiAction, string> = {
+  summarize: 'Summarize the context into a concise observation.',
+  'suggest-mechanism': 'Suggest a plausible mechanism based on the context.',
+  critique: 'Critique the reasoning gaps or weaknesses in the context.',
+  expand: 'Expand the context with additional relevant details.',
+  questions: 'Generate clarifying questions based on the context.',
+}
+
+const resolveProvider = (provider: string | null, keys: Awaited<ReturnType<typeof loadApiKeys>>): AiProvider => {
+  if (provider === 'openai' || provider === 'openai-compatible' || provider === 'anthropic' || provider === 'gemini') {
+    return provider
+  }
+  if (keys.openaiKey) return 'openai'
+  if (keys.anthropicKey) return 'anthropic'
+  if (keys.geminiKey) return 'gemini'
+  return 'openai'
+}
+
+const toApiKey = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKeys>>): string => {
+  if (provider === 'openai' || provider === 'openai-compatible') return keys.openaiKey ?? ''
+  if (provider === 'anthropic') return keys.anthropicKey ?? ''
+  return keys.geminiKey ?? ''
+}
+
+const toModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKeys>>): string => {
+  if (provider === 'openai' || provider === 'openai-compatible') return keys.openaiModel ?? DEFAULT_OPENAI_MODEL
+  if (provider === 'anthropic') return keys.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL
+  return keys.geminiModel ?? DEFAULT_GEMINI_MODEL
+}
+
+const buildMessages = (context: string, action: AiAction, extraContext?: string): AiMessage[] => {
+  const instruction = actionInstruction[action]
+  const userContent = [context, extraContext?.trim()].filter(Boolean).join('\n\n')
+
+  return [
+    {
+      role: 'system',
+      content: 'You are assisting with scientific research using the OMV framework.',
+    },
+    {
+      role: 'user',
+      content: `${instruction}\n\n${userContent}`.trim(),
+    },
+  ]
+}
+
+const getNodeById = (nodes: OMVNode[], nodeId: string): OMVNode | null =>
+  nodes.find((node) => node.id === nodeId) ?? null
+
+const createNodeFromResult = (sourceNode: OMVNode, action: AiAction, text: string): OMVNode => {
+  const type = action === 'suggest-mechanism' ? 'MECHANISM' : sourceNode.type
+  const position = {
+    x: (sourceNode.position?.x ?? 0) + POSITION_OFFSET.x,
+    y: (sourceNode.position?.y ?? 0) + POSITION_OFFSET.y,
+  }
+
+  return {
+    id: `node-${Date.now()}`,
+    type,
+    data: { text_content: text },
+    position,
+  }
+}
+
+const createEdge = (sourceId: string, targetId: string): OMVEdge => ({
+  id: `edge-${sourceId}-${targetId}`,
+  source: sourceId,
+  target: targetId,
+})
+
+export function useAi(nodeId: string) {
+  const abortRef = useRef<AbortController | null>(null)
+
+  const isLoading = useAiStore((s) => s.isLoading[nodeId] ?? false)
+  const streamingText = useAiStore((s) => s.streamingText[nodeId] ?? '')
+  const error = useAiStore((s) => s.error[nodeId] ?? null)
+  const currentAction = useAiStore((s) => s.currentAction[nodeId] ?? null)
+
+  const startStreaming = useAiStore((s) => s.startStreaming)
+  const appendText = useAiStore((s) => s.appendText)
+  const finishStreaming = useAiStore((s) => s.finishStreaming)
+  const setError = useAiStore((s) => s.setError)
+
+  const executeAction = useCallback(async (
+    action: AiAction,
+    context?: string,
+    options?: { createNodeOnComplete?: boolean }
+  ) => {
+    const createNodeOnComplete = options?.createNodeOnComplete ?? true
+    const keys = await loadApiKeys()
+    const provider = resolveProvider(keys.provider, keys)
+    const apiKey = toApiKey(provider, keys)
+    const model = toModel(provider, keys)
+
+    if (!apiKey) {
+      setError(nodeId, new AiErrorClass('No API key found. Please configure settings.', provider))
+      return
+    }
+
+    const storeState = useStore.getState()
+    const nodesSnapshot = storeState.nodes
+    const edgesSnapshot = storeState.edges
+    const ancestry = getNodeAncestry(nodeId, nodesSnapshot, edgesSnapshot)
+    const formatted = formatAncestryForPrompt(ancestry)
+    const messages = buildMessages(formatted, action, context)
+
+    startStreaming(nodeId, action)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    let aggregated = ''
+
+    try {
+      const response = await fetch(`/api/ai/${provider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          model,
+          messages,
+          stream: true,
+          ...(provider === 'openai' || provider === 'openai-compatible'
+            ? { baseUrl: keys.openaiBaseUrl ?? undefined }
+            : {}),
+        }),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        throw new AiErrorClass('AI request failed', provider, String(response.status))
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new AiErrorClass('AI stream unavailable', provider)
+      }
+
+      const parser =
+        provider === 'gemini'
+          ? parseGeminiStream
+          : provider === 'anthropic'
+            ? parseAnthropicStream
+            : parseOpenAIStream
+
+      for await (const chunk of parser(reader)) {
+        if (chunk.done) break
+        aggregated += chunk.text
+        appendText(nodeId, chunk.text)
+      }
+
+      finishStreaming(nodeId)
+
+      const finalText = aggregated.trim()
+      if (!finalText) return
+      if (!createNodeOnComplete) return
+
+      const sourceNode = getNodeById(nodesSnapshot, nodeId)
+      if (!sourceNode) return
+
+      const newNode = createNodeFromResult(sourceNode, action, finalText)
+      useStore.getState().addNode(newNode)
+      useStore.getState().addEdge(createEdge(nodeId, newNode.id))
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        finishStreaming(nodeId)
+        return
+      }
+
+      const message = caught instanceof Error ? caught.message : 'AI request failed'
+      const aiError: AiError =
+        caught instanceof AiErrorClass ? caught : new AiErrorClass(message, provider)
+      setError(nodeId, aiError)
+    } finally {
+      abortRef.current = null
+    }
+  }, [appendText, finishStreaming, nodeId, setError, startStreaming])
+
+  const cancel = useCallback(() => {
+    const controller = abortRef.current
+    if (controller) {
+      controller.abort()
+    }
+    finishStreaming(nodeId)
+  }, [finishStreaming, nodeId])
+
+  return useMemo(() => ({
+    isLoading,
+    streamingText,
+    error,
+    currentAction,
+    executeAction,
+    cancel,
+  }), [cancel, currentAction, error, executeAction, isLoading, streamingText])
+}

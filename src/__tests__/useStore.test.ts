@@ -94,6 +94,13 @@ describe('useStore', () => {
       position: { x: 12, y: 24 },
       parentIds: []
     })
+    await db.nodes.add({
+      id: 'node-2',
+      type: 'MECHANISM',
+      data: { text_content: 'loaded-2' },
+      position: { x: 30, y: 40 },
+      parentIds: []
+    })
     await db.edges.add({
       id: 'edge-1',
       source: 'node-1',
@@ -105,21 +112,19 @@ describe('useStore', () => {
       setPersistDelay(1)
       await useStore.getState().loadFromDb()
 
-      expect(useStore.getState().nodes).toHaveLength(1)
+      expect(useStore.getState().nodes).toHaveLength(2)
       expect(useStore.getState().edges).toHaveLength(1)
 
-      useStore.getState().addNode({
-        id: 'node-2',
-        type: 'MECHANISM',
-        data: { text_content: 'persisted' },
-        position: { x: 30, y: 40 }
-      })
+      useStore.getState().updateNodeData('node-2', { text_content: 'persisted' })
 
       await new Promise((resolve) => setTimeout(resolve, 10))
       await flushPromises()
 
       const nodes = await db.nodes.toArray()
       expect(nodes).toHaveLength(2)
+
+      const node2 = await db.nodes.get('node-2')
+      expect(node2?.parentIds).toEqual(['node-1'])
     } finally {
       vi.useFakeTimers()
     }
