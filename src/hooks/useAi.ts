@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react'
 
 import { loadApiKeys } from '@/lib/api-keys'
+import { createRightwardPosition } from '@/lib/node-layout'
 import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
 import type { AiAction, AiError, AiMessage, AiProvider } from '@/lib/ai/types'
 import { AiError as AiErrorClass } from '@/lib/ai/types'
@@ -12,8 +13,6 @@ import type { OMVEdge, OMVNode } from '@/types/nodes'
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
-
-const POSITION_OFFSET = { x: 220, y: 180 }
 
 const actionInstruction: Record<AiAction, string> = {
   summarize: 'Summarize the context into a concise observation.',
@@ -66,10 +65,7 @@ const getNodeById = (nodes: OMVNode[], nodeId: string): OMVNode | null =>
 
 const createNodeFromResult = (sourceNode: OMVNode, action: AiAction, text: string): OMVNode => {
   const type = action === 'suggest-mechanism' ? 'MECHANISM' : sourceNode.type
-  const position = {
-    x: (sourceNode.position?.x ?? 0) + POSITION_OFFSET.x,
-    y: (sourceNode.position?.y ?? 0) + POSITION_OFFSET.y,
-  }
+  const position = createRightwardPosition(sourceNode.position)
 
   return {
     id: `node-${Date.now()}`,

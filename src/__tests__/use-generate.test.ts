@@ -87,7 +87,7 @@ describe('useGenerate', () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: 'GHOST',
-          position: { x: 100, y: 350 },
+          position: { x: 380, y: 100 },
           data: expect.objectContaining({
             parentId: 'node-1',
             suggestedType: 'MECHANISM',

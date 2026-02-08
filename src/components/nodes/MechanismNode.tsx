@@ -1,34 +1,44 @@
 import React, { memo, useEffect, useRef, useState } from 'react'
 import type { NodeProps } from 'reactflow'
-import { Handle, Position } from 'reactflow'
+import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
 import { useStore } from '@/stores/useStore'
 import { useAiGeneration } from '@/hooks/useAiGeneration'
+import { useAutoResizingTextarea } from '@/hooks/useAutoResizingTextarea'
 import { NodePopover } from '@/components/ui/NodePopover'
 
 export const MechanismNode = memo(({ id, data, isConnectable, selected }: NodeProps<{ text_content: string }>) => {
   const updateNode = useStore((state) => state.updateNode)
   const { generate, isGenerating } = useAiGeneration()
+  const updateNodeInternals = useUpdateNodeInternals()
   const aiButtonRef = useRef<HTMLButtonElement | null>(null)
   const [aiOpen, setAiOpen] = useState(false)
+  const textContent = data?.text_content ?? ''
+  const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
 
   useEffect(() => {
     if (!selected) setAiOpen(false)
   }, [selected])
+
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [id, textContent, updateNodeInternals])
 
   const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     updateNode(id, { data: { text_content: event.target.value } })
   }
 
   return (
-    <div className="min-w-[180px] rounded-xl border-2 border-violet-500 bg-white/90 p-3 shadow-sm backdrop-blur-sm">
-      <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
+    <div className="w-[320px] rounded-xl border-2 border-violet-500 bg-white/90 p-3 shadow-sm backdrop-blur-sm">
+      <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-600">Mechanism</div>
       <textarea
-        className="nodrag w-full rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-800 shadow-inner placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
-        value={data?.text_content ?? ''}
+        ref={textareaRef}
+        className="nodrag w-full resize-none overflow-hidden rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-800 shadow-inner placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+        value={textContent}
         onChange={handleChange}
+        onInput={(event) => syncHeight(event.currentTarget)}
         placeholder="Describe the mechanism"
-        rows={3}
+        rows={1}
       />
       {selected && (
         <div className="nodrag mt-2 flex gap-2">
@@ -59,7 +69,7 @@ export const MechanismNode = memo(({ id, data, isConnectable, selected }: NodePr
           ) : null}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} />
+      <Handle type="source" position={Position.Right} isConnectable={isConnectable} />
     </div>
   )
 })

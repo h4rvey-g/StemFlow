@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { AiAction } from '@/lib/ai/types'
+import { createRightwardPosition } from '@/lib/node-layout'
 import { useAi } from '@/hooks/useAi'
 import { useStore } from '@/stores/useStore'
-import type { NodeType } from '@/types/nodes'
+import type { NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 import { StreamingText } from '@/components/ui/StreamingText'
 
 type Props = {
   nodeId: string
-  nodeType: NodeType
+  nodeType: Exclude<NodeType, 'GHOST'>
   isOpen: boolean
   onClose: () => void
   anchorEl: HTMLElement
@@ -54,22 +55,26 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     const text = streamingText.trim()
     if (!text) return
 
-    const nextType: NodeType = activeAction === 'suggest-mechanism' ? 'MECHANISM' : nodeType
+    const sourceType: Exclude<NodeType, 'GHOST'> = source.type === 'GHOST' ? nodeType : source.type
+    const nextType: Exclude<NodeType, 'GHOST'> = activeAction === 'suggest-mechanism' ? 'MECHANISM' : sourceType
     const newNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const position = { x: source.position.x + 220, y: source.position.y + 180 }
+    const position = createRightwardPosition(source.position)
 
-    addNode({
+    const newNode: OMVNode = {
       id: newNodeId,
       type: nextType,
       position,
       data: { text_content: text },
-    } as any)
+    }
 
-    addEdge({
+    const edge: OMVEdge = {
       id: `edge-${nodeId}-${newNodeId}`,
       source: nodeId,
       target: newNodeId,
-    } as any)
+    }
+
+    addNode(newNode)
+    addEdge(edge)
 
     onClose()
   }

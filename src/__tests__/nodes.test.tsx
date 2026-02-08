@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('reactflow', () => ({
   Handle: (props: React.ComponentProps<'div'>) => <div {...props} />,
-  Position: { Top: 'top', Bottom: 'bottom' },
+  Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
+  useUpdateNodeInternals: () => vi.fn(),
 }))
 
 import { MechanismNode } from '@/components/nodes/MechanismNode'

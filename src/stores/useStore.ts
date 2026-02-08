@@ -4,9 +4,16 @@ import type { Connection, EdgeChange, NodeChange } from 'reactflow'
 
 import type { DbNode } from '@/lib/db'
 import { db } from '@/lib/db'
-import type { GhostEdge, GhostNode, GhostNodeData, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
+import { resolveVerticalCollisions } from '@/lib/node-layout'
+import type { GhostEdge, GhostNode, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 
 export type { NodeType, OMVNode } from '@/types/nodes'
+
+const hasNodeChangeId = (change: NodeChange): change is NodeChange & { id: string } =>
+  'id' in change && typeof change.id === 'string'
+
+const isTrackedNodeChange = (change: NodeChange): change is NodeChange & { id: string } =>
+  hasNodeChangeId(change) && change.type === 'dimensions'
 
 let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
@@ -171,7 +178,14 @@ export const useStore = create<StoreState>((set) => ({
         (change) => !('id' in change && typeof change.id === 'string' && change.id.startsWith('ghost-'))
       )
 
-      const nodes = applyNodeChanges(nonGhostChanges, state.nodes) as OMVNode[]
+      const changedNodeIds = new Set(
+        nonGhostChanges
+          .filter(isTrackedNodeChange)
+          .map((change) => change.id)
+      )
+
+      const nextNodes = applyNodeChanges(nonGhostChanges, state.nodes) as OMVNode[]
+      const nodes = resolveVerticalCollisions(nextNodes, changedNodeIds)
       const ghostNodes = applyNodeChanges(ghostChanges, state.ghostNodes) as GhostNode[]
 
       schedulePersist(nodes, state.edges)

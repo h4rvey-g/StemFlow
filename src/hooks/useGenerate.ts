@@ -3,6 +3,7 @@ import { useStore } from '@/stores/useStore'
 import { loadApiKeys } from '@/lib/api-keys'
 import { generateNextSteps } from '@/lib/ai-service'
 import { getNodeAncestry } from '@/lib/graph'
+import { createRightwardSiblingPosition } from '@/lib/node-layout'
 import type { GhostEdge, GhostNode } from '@/types/nodes'
 
 export function useGenerate() {
@@ -65,10 +66,7 @@ export function useGenerate() {
         return {
         id: ghostId,
         type: 'GHOST' as const,
-        position: {
-          x: parentNode.position.x + (index * 220),
-          y: parentNode.position.y + 250,
-        },
+        position: createRightwardSiblingPosition(parentNode.position, index),
         data: {
           text_content: step.text_content,
           suggestedType: step.type,

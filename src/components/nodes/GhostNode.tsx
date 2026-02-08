@@ -27,10 +27,10 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
 
   return (
     <div
-      className={`min-w-[180px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80`}
+      className={`w-[320px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80`}
       style={{ zIndex: 9999 }}
     >
-      <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
+      <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
       
       <div className={`text-xs font-bold mb-1 ${colorClass}`}>
         {typeLabels[suggestedType]}
@@ -57,7 +57,7 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
         </button>
       </div>
 
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
+      <Handle type="source" position={Position.Right} isConnectable={false} />
     </div>
   )
 })

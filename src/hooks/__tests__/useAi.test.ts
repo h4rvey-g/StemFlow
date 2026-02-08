@@ -10,7 +10,7 @@ import type { OMVEdge, OMVNode } from '@/types/nodes'
 vi.mock('@/lib/api-keys')
 
 const NODE_ID = 'node-1'
-const POSITION_OFFSET = { x: 220, y: 180 }
+const POSITION_OFFSET = { x: 280, y: 0 }
 
 const streamFromStrings = (chunks: string[]) => {
   const encoder = new TextEncoder()
