@@ -146,19 +146,23 @@ function Canvas() {
               {aiError}
             </div>
           )}
-           <ReactFlow
-             nodes={allNodes}
-             edges={[...edges, ...ghostEdges]}
-             onNodesChange={onNodesChange}
-             onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onConnectStart={handleConnectStart}
-              onConnectEnd={handleConnectEnd}
-              nodeTypes={nodeTypes}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            fitView
-          >
+            <ReactFlow
+              nodes={allNodes}
+              edges={[...edges, ...ghostEdges]}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+               onConnect={onConnect}
+               onConnectStart={handleConnectStart}
+               onConnectEnd={handleConnectEnd}
+               nodeTypes={nodeTypes}
+              selectionOnDrag
+              selectionKeyCode="Shift"
+              multiSelectionKeyCode="Shift"
+              deleteKeyCode={['Backspace', 'Delete']}
+             onDrop={onDrop}
+             onDragOver={onDragOver}
+             fitView
+           >
             <Background 
               variant={BackgroundVariant.Dots} 
               gap={16} 
