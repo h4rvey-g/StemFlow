@@ -48,4 +48,5 @@ describe('Sidebar', () => {
       expect(dataTransfer.effectAllowed).toBe('move')
     })
   })
+
 })

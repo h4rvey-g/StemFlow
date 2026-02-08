@@ -4,7 +4,8 @@ import type { Connection, EdgeChange, NodeChange } from 'reactflow'
 
 import type { DbNode } from '@/lib/db'
 import { db } from '@/lib/db'
-import { resolveVerticalCollisions } from '@/lib/node-layout'
+import { deleteAttachmentsForNode } from '@/lib/file-storage'
+import { formatNodesNeatly, resolveVerticalCollisions } from '@/lib/node-layout'
 import type { GhostEdge, GhostNode, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 
 export type { NodeType, OMVNode } from '@/types/nodes'
@@ -19,6 +20,15 @@ let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
 const GLOBAL_GOAL_STORAGE = 'stemflow:globalGoal'
+const SOURCE_HANDLE_IDS = ['s-middle', 's-top', 's-bottom'] as const
+const TARGET_HANDLE_IDS = ['t-middle', 't-top', 't-bottom'] as const
+
+type HandleAssignable = {
+  source?: string | null
+  target?: string | null
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}
 
 const loadGlobalGoal = (): string => {
   if (typeof window === 'undefined') return ''
@@ -27,6 +37,68 @@ const loadGlobalGoal = (): string => {
   } catch {
     return ''
   }
+}
+
+const pickLeastUsedHandle = (
+  edges: OMVEdge[],
+  nodeId: string,
+  side: 'source' | 'target'
+): string => {
+  const handleIds = side === 'source' ? SOURCE_HANDLE_IDS : TARGET_HANDLE_IDS
+  const counts = new Map<string, number>(handleIds.map((handleId) => [handleId, 0]))
+
+  for (const edge of edges) {
+    if (side === 'source' && edge.source === nodeId) {
+      const handleId = edge.sourceHandle ?? SOURCE_HANDLE_IDS[0]
+      if (counts.has(handleId)) {
+        counts.set(handleId, (counts.get(handleId) ?? 0) + 1)
+      }
+      continue
+    }
+
+    if (side === 'target' && edge.target === nodeId) {
+      const handleId = edge.targetHandle ?? TARGET_HANDLE_IDS[0]
+      if (counts.has(handleId)) {
+        counts.set(handleId, (counts.get(handleId) ?? 0) + 1)
+      }
+    }
+  }
+
+  return handleIds.reduce((best, candidate) => {
+    if ((counts.get(candidate) ?? 0) < (counts.get(best) ?? 0)) {
+      return candidate
+    }
+    return best
+  }, handleIds[0])
+}
+
+const withDistributedHandles = <T extends HandleAssignable>(
+  edgeLike: T,
+  edges: OMVEdge[],
+  nodes: OMVNode[]
+): T => {
+  if (!edgeLike.source || !edgeLike.target) return edgeLike
+
+  const next = { ...edgeLike }
+  const sourceId = next.source
+  const targetId = next.target
+
+  if (typeof sourceId !== 'string' || typeof targetId !== 'string') {
+    return edgeLike
+  }
+
+  const sourceIsResearchNode = nodes.some((node) => node.id === sourceId)
+  const targetIsResearchNode = nodes.some((node) => node.id === targetId)
+
+  if (!next.sourceHandle && sourceIsResearchNode) {
+    next.sourceHandle = pickLeastUsedHandle(edges, sourceId, 'source')
+  }
+
+  if (!next.targetHandle && targetIsResearchNode) {
+    next.targetHandle = pickLeastUsedHandle(edges, targetId, 'target')
+  }
+
+  return next
 }
 
 const schedulePersist = (nodes: OMVNode[], edges: OMVEdge[]) => {
@@ -92,6 +164,7 @@ export interface StoreState {
   setAiError: (error: string | null) => void
   setGlobalGoal: (goal: string) => void
   clearGhostNodes: () => void
+  formatCanvas: () => void
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -151,13 +224,18 @@ export const useStore = create<StoreState>((set) => ({
   deleteNode: (id) => {
     set((state) => {
       const nodes = state.nodes.filter((node) => node.id !== id)
-      schedulePersist(nodes, state.edges)
-      return { nodes }
+      const edges = state.edges.filter((edge) => edge.source !== id && edge.target !== id)
+      schedulePersist(nodes, edges)
+      void deleteAttachmentsForNode(id).catch((error: unknown) => {
+        console.error('Failed to delete node attachments:', error)
+      })
+      return { nodes, edges }
     })
   },
   addEdge: (edge) => {
     set((state) => {
-      const edges = addEdge(edge, state.edges)
+      const distributed = withDistributedHandles(edge, state.edges, state.nodes)
+      const edges = addEdge(distributed, state.edges)
       schedulePersist(state.nodes, edges)
       return { edges }
     })
@@ -209,7 +287,8 @@ export const useStore = create<StoreState>((set) => ({
   },
   onConnect: (connection) => {
     set((state) => {
-      const edges = addEdge(connection, state.edges)
+      const distributed = withDistributedHandles(connection, state.edges, state.nodes)
+      const edges = addEdge(distributed, state.edges)
       schedulePersist(state.nodes, edges)
       return { edges }
     })
@@ -238,12 +317,22 @@ export const useStore = create<StoreState>((set) => ({
       }
 
       const nodes = [...state.nodes, newNode]
-      const edges = addEdge(
+      const distributed = withDistributedHandles(
         {
           source: ghostNode.data.parentId,
           target: newNodeId,
           sourceHandle: null,
           targetHandle: null,
+        },
+        state.edges,
+        nodes
+      )
+      const edges = addEdge(
+        {
+          source: distributed.source,
+          target: distributed.target,
+          sourceHandle: distributed.sourceHandle,
+          targetHandle: distributed.targetHandle,
         },
         state.edges
       )
@@ -282,5 +371,14 @@ export const useStore = create<StoreState>((set) => ({
   },
   clearGhostNodes: () => {
     set(() => ({ ghostNodes: [], ghostEdges: [] }))
+  },
+  formatCanvas: () => {
+    set((state) => {
+      const nodes = formatNodesNeatly(state.nodes, state.edges)
+      if (nodes === state.nodes) return state
+
+      schedulePersist(nodes, state.edges)
+      return { nodes }
+    })
   },
 }))

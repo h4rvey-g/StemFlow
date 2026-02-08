@@ -41,6 +41,7 @@ vi.mock('@/stores/useStore', () => {
     setAiError: vi.fn(),
     setGlobalGoal: vi.fn(),
     clearGhostNodes: vi.fn(),
+    formatCanvas: vi.fn(),
   }
 
   const useStore = <T,>(selector?: (state: StoreState) => T) =>

@@ -1,6 +1,6 @@
 import type { XYPosition } from 'reactflow'
 
-import type { OMVNode } from '@/types/nodes'
+import type { OMVEdge, OMVNode } from '@/types/nodes'
 
 const DEFAULT_NODE_HEIGHT = 140
 
@@ -80,4 +80,128 @@ export const resolveVerticalCollisions = (nodes: OMVNode[], changedNodeIds: Set<
   })
 
   return hasShift ? nextNodes : nodes
+}
+
+const FORMAT_START_X = 80
+const FORMAT_START_Y = 80
+
+export const formatNodesNeatly = (nodes: OMVNode[], edges: OMVEdge[]): OMVNode[] => {
+  if (nodes.length <= 1) return nodes
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const incomingCount = new Map<string, number>()
+  const outgoing = new Map<string, string[]>()
+
+  nodes.forEach((node) => {
+    incomingCount.set(node.id, 0)
+    outgoing.set(node.id, [])
+  })
+
+  edges.forEach((edge) => {
+    if (!edge.source || !edge.target) return
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) return
+
+    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1)
+    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target])
+  })
+
+  const roots = nodes
+    .filter((node) => (incomingCount.get(node.id) ?? 0) === 0)
+    .sort((a, b) => {
+      const ay = a.position?.y ?? 0
+      const by = b.position?.y ?? 0
+      if (ay !== by) return ay - by
+      const ax = a.position?.x ?? 0
+      const bx = b.position?.x ?? 0
+      return ax - bx
+    })
+
+  const queue = roots.map((node) => node.id)
+  const depthById = new Map<string, number>()
+
+  queue.forEach((id) => {
+    depthById.set(id, 0)
+  })
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+    if (!currentId) continue
+
+    const currentDepth = depthById.get(currentId) ?? 0
+    const children = outgoing.get(currentId) ?? []
+
+    children.forEach((childId) => {
+      const nextDepth = currentDepth + 1
+      const existingDepth = depthById.get(childId)
+      if (existingDepth === undefined || existingDepth < nextDepth) {
+        depthById.set(childId, nextDepth)
+      }
+
+      const remainingParents = (incomingCount.get(childId) ?? 1) - 1
+      incomingCount.set(childId, remainingParents)
+
+      if (remainingParents === 0) {
+        queue.push(childId)
+      }
+    })
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.position?.x ?? 0))
+  nodes.forEach((node) => {
+    if (depthById.has(node.id)) return
+    const fallbackDepth = Math.max(
+      0,
+      Math.round(((node.position?.x ?? 0) - minX) / NODE_HORIZONTAL_STEP)
+    )
+    depthById.set(node.id, fallbackDepth)
+  })
+
+  const depthGroups = new Map<number, OMVNode[]>()
+  nodes.forEach((node) => {
+    const depth = depthById.get(node.id) ?? 0
+    const group = depthGroups.get(depth) ?? []
+    depthGroups.set(depth, [...group, node])
+  })
+
+  const sortedDepths = Array.from(depthGroups.keys()).sort((a, b) => a - b)
+  const positionById = new Map<string, XYPosition>()
+
+  sortedDepths.forEach((depth) => {
+    const depthNodes = (depthGroups.get(depth) ?? []).sort((a, b) => {
+      const ay = a.position?.y ?? 0
+      const by = b.position?.y ?? 0
+      if (ay !== by) return ay - by
+      const ax = a.position?.x ?? 0
+      const bx = b.position?.x ?? 0
+      return ax - bx
+    })
+
+    let currentY = FORMAT_START_Y
+    const x = FORMAT_START_X + depth * NODE_HORIZONTAL_STEP
+
+    depthNodes.forEach((node) => {
+      positionById.set(node.id, { x, y: currentY })
+      currentY += getNodeHeight(node) + NODE_VERTICAL_GAP
+    })
+  })
+
+  let hasPositionChange = false
+  const formattedNodes = nodes.map((node) => {
+    const nextPosition = positionById.get(node.id)
+    if (!nextPosition) return node
+
+    const currentX = node.position?.x ?? 0
+    const currentY = node.position?.y ?? 0
+    if (currentX === nextPosition.x && currentY === nextPosition.y) {
+      return node
+    }
+
+    hasPositionChange = true
+    return {
+      ...node,
+      position: nextPosition,
+    }
+  })
+
+  return hasPositionChange ? formattedNodes : nodes
 }

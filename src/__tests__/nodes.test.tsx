@@ -21,7 +21,7 @@ vi.mock('@/stores/useStore', () => ({
 }))
 
 const renderNodeWithPlaceholder = (Component: React.ComponentType<any>, placeholder: string, nodeId: string) => {
-  render(<Component id={nodeId} data={{ text_content: 'initial' }} isConnectable={false} />)
+  render(<Component id={nodeId} data={{ text_content: 'initial' }} isConnectable={false} selected />)
   const textarea = screen.getByPlaceholderText(placeholder)
   expect(textarea).toBeInTheDocument()
   return textarea as HTMLTextAreaElement

@@ -2,8 +2,30 @@ import type { Edge, Node } from 'reactflow'
 
 export type NodeType = 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'
 
+export interface FileMetadata {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  uploadedAt: number
+}
+
+export interface NodeFileAttachment extends FileMetadata {
+  processingStatus: 'processing' | 'ready' | 'error'
+  processingError: string | null
+  textExcerpt: string | null
+  imageDescription: string | null
+}
+
 export interface NodeData {
   text_content: string
+  attachments?: NodeFileAttachment[]
+  // Legacy fields kept for backward compatibility with older persisted data.
+  fileMetadata?: FileMetadata | null
+  fileProcessingStatus?: 'processing' | 'ready' | 'error' | null
+  fileProcessingError?: string | null
+  fileTextExcerpt?: string | null
+  imageDescription?: string | null
 }
 
 export interface GhostNodeData {

@@ -15,5 +15,25 @@ export function useAutoResizingTextarea(value: string) {
     syncHeight()
   }, [syncHeight, value])
 
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isUndoOrRedoKey = event.key.toLowerCase() === 'z'
+      const hasModifier = event.ctrlKey || event.metaKey
+
+      if (isUndoOrRedoKey && hasModifier) {
+        event.stopPropagation()
+      }
+    }
+
+    textarea.addEventListener('keydown', handleKeyDown, true)
+
+    return () => {
+      textarea.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [])
+
   return { textareaRef, syncHeight }
 }

@@ -1,7 +1,39 @@
-import type { AiRequestOptions, AiResponse, OpenAiModel } from '@/lib/ai/types'
+import type { AiMessage, AiRequestOptions, AiResponse, OpenAiModel } from '@/lib/ai/types'
 
 export const OPENAI_API_URL = 'https://api.openai.com/v1'
 export const SUPPORTED_OPENAI_MODELS: OpenAiModel[] = ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo']
+
+type OpenAIMessageContent =
+  | string
+  | Array<
+      | { type: 'text'; text: string }
+      | { type: 'image_url'; image_url: { url: string } }
+    >
+
+const toOpenAIContent = (content: AiMessage['content']): OpenAIMessageContent => {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { type: 'text' as const, text: part.text }
+    }
+
+    return {
+      type: 'image_url' as const,
+      image_url: {
+        url: part.dataUrl,
+      },
+    }
+  })
+}
+
+const toOpenAIMessages = (messages: AiRequestOptions['messages']) =>
+  messages.map((message) => ({
+    role: message.role,
+    content: toOpenAIContent(message.content),
+  }))
 
 interface OpenAIChoice {
   message?: {
@@ -18,7 +50,7 @@ interface OpenAIResponse {
 export function createOpenAIRequest(options: AiRequestOptions) {
   const body: Record<string, unknown> = {
     model: options.model,
-    messages: options.messages,
+    messages: toOpenAIMessages(options.messages),
   }
 
   if (typeof options.temperature === 'number') {

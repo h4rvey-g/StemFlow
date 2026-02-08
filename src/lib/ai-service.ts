@@ -2,13 +2,131 @@ import { generateText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 
+import { loadApiKeys } from '@/lib/api-keys'
 import { formatAncestryForPrompt } from '@/lib/graph'
+import type { AiMessage, AiProvider } from '@/lib/ai/types'
 import type { NodeType, OMVNode } from '@/types/nodes'
 import modelsSchema from '@/lib/models-schema.json'
 
 export interface GeneratedStep {
   type: NodeType
   text_content: string
+}
+
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
+
+const VISION_SYSTEM_PROMPT =
+  'You are a scientific research assistant. Describe uploaded images clearly and concisely for experiment documentation. Focus on observable structures, labels, axes, and notable patterns. Avoid speculation.'
+
+const inferProvider = (state: Awaited<ReturnType<typeof loadApiKeys>>): AiProvider | null => {
+  if (state.provider) return state.provider
+  if (state.openaiKey) return 'openai'
+  if (state.geminiKey) return 'gemini'
+  if (state.anthropicKey) return 'anthropic'
+  return null
+}
+
+const getProviderSettings = async () => {
+  const state = await loadApiKeys()
+  const provider = inferProvider(state)
+  if (!provider) {
+    throw new Error('Configure an AI provider API key to enable image descriptions.')
+  }
+
+  if ((provider === 'openai' || provider === 'openai-compatible') && state.openaiKey) {
+    return {
+      provider,
+      apiKey: state.openaiKey,
+      model: state.openaiModel || DEFAULT_OPENAI_MODEL,
+      baseUrl: state.openaiBaseUrl,
+    }
+  }
+
+  if (provider === 'gemini' && state.geminiKey) {
+    return {
+      provider,
+      apiKey: state.geminiKey,
+      model: state.geminiModel || DEFAULT_GEMINI_MODEL,
+      baseUrl: null,
+    }
+  }
+
+  if (provider === 'anthropic' && state.anthropicKey) {
+    return {
+      provider,
+      apiKey: state.anthropicKey,
+      model: state.anthropicModel || DEFAULT_ANTHROPIC_MODEL,
+      baseUrl: state.anthropicBaseUrl,
+    }
+  }
+
+  throw new Error(`No API key configured for provider: ${provider}`)
+}
+
+const readErrorMessage = async (response: Response): Promise<string> => {
+  const contentType = response.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    const json = await response.json().catch(() => null)
+    if (json && typeof json === 'object' && 'error' in json && typeof json.error === 'string') {
+      return json.error
+    }
+  }
+
+  const text = await response.text().catch(() => '')
+  return text || `Vision request failed with status ${response.status}`
+}
+
+export const describeImageWithVision = async (
+  imageDataUrl: string,
+  contextText?: string
+): Promise<string> => {
+  const settings = await getProviderSettings()
+
+  const messageText = contextText?.trim()
+    ? `Provide a concise description of this image for the following node context: ${contextText.trim()}`
+    : 'Provide a concise description of this image for a scientific research node.'
+
+  const messages: AiMessage[] = [
+    {
+      role: 'system',
+      content: VISION_SYSTEM_PROMPT,
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: messageText },
+        { type: 'image', dataUrl: imageDataUrl },
+      ],
+    },
+  ]
+
+  const response = await fetch(`/api/ai/${settings.provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey: settings.apiKey,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      messages,
+      stream: false,
+      temperature: 0.2,
+      maxTokens: 300,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response))
+  }
+
+  const json = (await response.json()) as { text?: string }
+  const description = typeof json.text === 'string' ? json.text.trim() : ''
+
+  if (!description) {
+    throw new Error('Vision model returned an empty description.')
+  }
+
+  return description
 }
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'

@@ -28,21 +28,35 @@ describe('ai service types', () => {
   })
 
   it('exports expected request/response interfaces', () => {
-    expectTypeOf<AiMessage>().toMatchTypeOf({ role: 'user', content: 'x' })
+    expectTypeOf<AiMessage>().toMatchTypeOf<{
+      role: 'system' | 'user' | 'assistant'
+      content:
+        | string
+        | Array<
+            | { type: 'text'; text: string }
+            | { type: 'image'; dataUrl: string; mimeType?: string }
+          >
+    }>()
 
-    expectTypeOf<AiRequestOptions>().toMatchTypeOf({
-      provider: 'openai',
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: 'Hello' }],
-    })
+    expectTypeOf<AiRequestOptions>().toMatchTypeOf<{
+      provider: AiProvider
+      model: string
+      messages: AiMessage[]
+      temperature?: number
+      maxTokens?: number
+      stream?: boolean
+    }>()
 
-    expectTypeOf<AiResponse>().toMatchTypeOf({
-      text: 'hello',
-      model: 'gpt-4o',
-      finishReason: 'stop',
-    })
+    expectTypeOf<AiResponse>().toMatchTypeOf<{
+      text: string
+      model: string
+      finishReason: string
+    }>()
 
-    expectTypeOf<AiStreamChunk>().toMatchTypeOf({ text: 'hi', done: false })
+    expectTypeOf<AiStreamChunk>().toMatchTypeOf<{
+      text: string
+      done: boolean
+    }>()
   })
 
   it('exports expected action union', () => {

@@ -8,7 +8,10 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  type DefaultEdgeOptions,
   type OnConnectStart,
+  type Edge,
+  type Node,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -30,6 +33,29 @@ const nodeTypes = {
   GHOST: GhostNode,
 }
 
+const defaultEdgeOptions: DefaultEdgeOptions = {
+  type: 'smoothstep',
+  style: {
+    stroke: '#94a3b8',
+    strokeWidth: 1.6,
+  },
+}
+
+const AlignIcon = () => (
+  <svg
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h14" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h10" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 18h14" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 4v16" />
+  </svg>
+)
+
 function Canvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const hasLoadedRef = useRef(false)
@@ -40,6 +66,7 @@ function Canvas() {
   const ghostNodes = useStore((s) => s.ghostNodes)
   const ghostEdges = useStore((s) => s.ghostEdges)
   const [connectingFromType, setConnectingFromType] = useState<NodeType | null>(null)
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   
   const aiError = useStore((s) => s.aiError)
   const onNodesChange = useStore((s) => s.onNodesChange)
@@ -47,6 +74,7 @@ function Canvas() {
   const onConnect = useStore((s) => s.onConnect)
   const addNode = useStore((s) => s.addNode)
   const loadFromDb = useStore((s) => s.loadFromDb)
+  const formatCanvas = useStore((s) => s.formatCanvas)
 
   useEffect(() => {
     if (hasLoadedRef.current) return
@@ -102,6 +130,49 @@ function Canvas() {
     return [...decorated, ...ghostNodes]
   }, [nodes, ghostNodes, connectingFromType])
 
+  const displayEdges = useMemo(() => {
+    const combinedEdges = [...edges, ...ghostEdges]
+
+    if (!hoveredNodeId) {
+      return combinedEdges
+    }
+
+    return combinedEdges.map((edge) => {
+      const isConnected = edge.source === hoveredNodeId || edge.target === hoveredNodeId
+      const isGhostEdge = edge.id.startsWith('ghost-edge-') || edge.data?.ghost === true
+
+      if (isConnected) {
+        return {
+          ...edge,
+          zIndex: 20,
+          style: {
+            ...edge.style,
+            opacity: 1,
+            stroke: isGhostEdge ? '#64748b' : '#334155',
+            strokeWidth: isGhostEdge ? 2 : 2.4,
+          },
+        }
+      }
+
+      return {
+        ...edge,
+        zIndex: 1,
+        style: {
+          ...edge.style,
+          opacity: isGhostEdge ? 0.1 : 0.18,
+        },
+      }
+    })
+  }, [edges, ghostEdges, hoveredNodeId])
+
+  const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    setHoveredNodeId(node.id)
+  }, [])
+
+  const handleNodeMouseLeave = useCallback((_event: React.MouseEvent, _node: Node) => {
+    setHoveredNodeId(null)
+  }, [])
+
   const handleConnectStart: OnConnectStart = useCallback(
     (_event, params) => {
       if (params.handleType !== 'source' || !params.nodeId) return
@@ -131,7 +202,14 @@ function Canvas() {
           </span>
         </div>
         <div className="text-xs text-slate-500">
-          AI-Assisted Research Canvas
+          <button
+            onClick={formatCanvas}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+            data-testid="topbar-format-canvas"
+          >
+            <AlignIcon />
+            Align Nodes
+          </button>
         </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
@@ -148,21 +226,24 @@ function Canvas() {
           )}
             <ReactFlow
               nodes={allNodes}
-              edges={[...edges, ...ghostEdges]}
+              edges={displayEdges as Edge[]}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-               onConnect={onConnect}
-               onConnectStart={handleConnectStart}
-               onConnectEnd={handleConnectEnd}
-               nodeTypes={nodeTypes}
+              onConnect={onConnect}
+              onConnectStart={handleConnectStart}
+              onConnectEnd={handleConnectEnd}
+              onNodeMouseEnter={handleNodeMouseEnter}
+              onNodeMouseLeave={handleNodeMouseLeave}
+              nodeTypes={nodeTypes}
+              defaultEdgeOptions={defaultEdgeOptions}
               selectionOnDrag
               selectionKeyCode="Shift"
               multiSelectionKeyCode="Shift"
               deleteKeyCode={['Backspace', 'Delete']}
-             onDrop={onDrop}
-             onDragOver={onDragOver}
-             fitView
-           >
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              fitView
+            >
             <Background 
               variant={BackgroundVariant.Dots} 
               gap={16} 

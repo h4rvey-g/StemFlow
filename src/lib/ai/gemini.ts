@@ -5,6 +5,48 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta'
 const mapRole = (role: AiRequestOptions['messages'][number]['role']): 'user' | 'model' =>
   role === 'assistant' ? 'model' : 'user'
 
+type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+
+const parseDataUrl = (dataUrl: string): { mimeType: string; base64: string } | null => {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) return null
+
+  return {
+    mimeType: match[1],
+    base64: match[2],
+  }
+}
+
+const toGeminiParts = (content: AiRequestOptions['messages'][number]['content']): GeminiPart[] => {
+  if (typeof content === 'string') {
+    return [{ text: content }]
+  }
+
+  const parts = content
+    .map((part): GeminiPart | null => {
+      if (part.type === 'text') {
+        return { text: part.text }
+      }
+
+      const parsed = parseDataUrl(part.dataUrl)
+      if (!parsed) {
+        return { text: '[Image attachment could not be parsed]' }
+      }
+
+      return {
+        inlineData: {
+          mimeType: parsed.mimeType,
+          data: parsed.base64,
+        },
+      }
+    })
+    .filter((part): part is GeminiPart => part !== null)
+
+  return parts.length > 0 ? parts : [{ text: '' }]
+}
+
 interface GeminiResponseCandidate {
   metadata?: { finishReason?: string }
   content?: { parts?: Array<{ text?: string }> }
@@ -23,7 +65,7 @@ export function createGeminiRequest(options: AiRequestOptions) {
 
   const contents = options.messages.map((message) => ({
     role: mapRole(message.role),
-    parts: [{ text: message.content }],
+    parts: toGeminiParts(message.content),
   }))
 
   const generationConfig: Record<string, number> = {}

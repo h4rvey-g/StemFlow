@@ -1,4 +1,4 @@
-import type { AiRequestOptions, AiResponse, AnthropicModel } from '@/lib/ai/types'
+import type { AiMessage, AiRequestOptions, AiResponse, AnthropicModel } from '@/lib/ai/types'
 
 export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1'
 
@@ -17,21 +17,93 @@ const ensureAnthropicModel = (model: AiRequestOptions['model']): AnthropicModel 
   throw new Error(`Unsupported Anthropic model: ${model}`)
 }
 
+type AnthropicImageBlock = {
+  type: 'image'
+  source: {
+    type: 'base64'
+    media_type: string
+    data: string
+  }
+}
+
+type AnthropicTextBlock = {
+  type: 'text'
+  text: string
+}
+
+type AnthropicMessageContent = string | Array<AnthropicTextBlock | AnthropicImageBlock>
+
+const parseDataUrl = (dataUrl: string): { mimeType: string; base64: string } | null => {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) return null
+
+  return {
+    mimeType: match[1],
+    base64: match[2],
+  }
+}
+
+const toAnthropicText = (content: AiMessage['content']): string => {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  return content
+    .map((part) => (part.type === 'text' ? part.text : '[Image attachment]'))
+    .join('\n')
+}
+
+const toAnthropicContent = (content: AiMessage['content']): AnthropicMessageContent => {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  const blocks = content
+    .map((part): AnthropicTextBlock | AnthropicImageBlock | null => {
+      if (part.type === 'text') {
+        return { type: 'text', text: part.text }
+      }
+
+      const parsed = parseDataUrl(part.dataUrl)
+      if (!parsed) {
+        return {
+          type: 'text',
+          text: '[Image attachment could not be parsed]',
+        }
+      }
+
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: parsed.mimeType,
+          data: parsed.base64,
+        },
+      }
+    })
+    .filter((block): block is AnthropicTextBlock | AnthropicImageBlock => block !== null)
+
+  return blocks.length === 1 && blocks[0].type === 'text' ? blocks[0].text : blocks
+}
+
 export function createAnthropicRequest(options: AiRequestOptions) {
   const model = ensureAnthropicModel(options.model)
 
   const systemMessages = options.messages
     .filter((message) => message.role === 'system')
-    .map((message) => message.content)
+    .map((message) => toAnthropicText(message.content))
 
   const assistantAndUserMessages = options.messages
     .filter((message) => message.role !== 'system')
-    .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }))
+    .map((message) => ({
+      role: message.role as 'user' | 'assistant',
+      content: toAnthropicContent(message.content),
+    }))
 
   const body: {
     model: AnthropicModel
     system?: string
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    messages: Array<{ role: 'user' | 'assistant'; content: AnthropicMessageContent }>
     max_tokens: number
     temperature?: number
     stream?: boolean

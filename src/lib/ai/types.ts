@@ -6,9 +6,23 @@ export type AnthropicModel = 'claude-3-5-sonnet-20241022' | 'claude-3-haiku-2024
 
 export type AiModel = GeminiModel | OpenAiModel | AnthropicModel
 
+export interface AiTextPart {
+  type: 'text'
+  text: string
+}
+
+export interface AiImagePart {
+  type: 'image'
+  dataUrl: string
+  mimeType?: string
+}
+
+export type AiContentPart = AiTextPart | AiImagePart
+export type AiMessageContent = string | AiContentPart[]
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: AiMessageContent
 }
 
 export interface AiRequestOptions {
