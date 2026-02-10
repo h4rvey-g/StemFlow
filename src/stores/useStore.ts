@@ -21,6 +21,9 @@ export type { NodeType, OMVNode } from '@/types/nodes'
 const hasNodeChangeId = (change: NodeChange): change is NodeChange & { id: string } =>
   'id' in change && typeof change.id === 'string'
 
+const hasEdgeChangeId = (change: EdgeChange): change is EdgeChange & { id: string } =>
+  'id' in change && typeof change.id === 'string'
+
 const isTrackedNodeChange = (change: NodeChange): change is NodeChange & { id: string } =>
   hasNodeChangeId(change) && change.type === 'dimensions'
 
@@ -103,6 +106,62 @@ const loadGlobalGoal = (): string => {
   }
 }
 
+const MAX_UNDO_ACTIONS = 100
+const MAX_REMOVED_EDGE_BUFFER = 200
+
+type UndoAction =
+  | {
+      type: 'node-add'
+      nodeId: string
+    }
+  | {
+      type: 'node-delete'
+      nodes: OMVNode[]
+      edges: OMVEdge[]
+    }
+
+const pushUndoAction = (undoStack: UndoAction[], action: UndoAction): UndoAction[] => {
+  if (undoStack.length >= MAX_UNDO_ACTIONS) {
+    return [...undoStack.slice(1), action]
+  }
+  return [...undoStack, action]
+}
+
+const recentlyRemovedEdgeMap = new Map<string, OMVEdge>()
+
+const addRemovedEdgesToBuffer = (edges: OMVEdge[]) => {
+  for (const edge of edges) {
+    recentlyRemovedEdgeMap.set(edge.id, edge)
+  }
+
+  while (recentlyRemovedEdgeMap.size > MAX_REMOVED_EDGE_BUFFER) {
+    const oldestKey = recentlyRemovedEdgeMap.keys().next().value
+    if (typeof oldestKey !== 'string') break
+    recentlyRemovedEdgeMap.delete(oldestKey)
+  }
+}
+
+const takeBufferedEdgesForNodes = (nodeIds: Set<string>): OMVEdge[] => {
+  if (nodeIds.size === 0 || recentlyRemovedEdgeMap.size === 0) return []
+
+  const matchedEdges: OMVEdge[] = []
+  const matchedEdgeIds: string[] = []
+
+  recentlyRemovedEdgeMap.forEach((edge, edgeId) => {
+    if (!nodeIds.has(edge.source) && !nodeIds.has(edge.target)) {
+      return
+    }
+    matchedEdges.push(edge)
+    matchedEdgeIds.push(edgeId)
+  })
+
+  for (const edgeId of matchedEdgeIds) {
+    recentlyRemovedEdgeMap.delete(edgeId)
+  }
+
+  return matchedEdges
+}
+
 const withDistributedHandles = <T extends HandleAssignable>(
   edgeLike: T,
   nodes: OMVNode[]
@@ -176,6 +235,7 @@ export interface StoreState {
   aiError: string | null
   globalGoal: string
   isLoading: boolean
+  undoStack: UndoAction[]
   loadFromDb: () => Promise<void>
   addNode: (node: OMVNode) => void
   updateNode: (id: string, data: Partial<OMVNode>) => void
@@ -189,6 +249,7 @@ export interface StoreState {
   setGhostNodes: (nodes: GhostNode[]) => void
   setGhostSuggestions: (nodes: GhostNode[], edges: GhostEdge[]) => void
   acceptGhostNode: (ghostId: string) => void
+  acceptAllGhostNodes: () => void
   dismissGhostNode: (ghostId: string) => void
   dismissAllGhostNodes: () => void
   setIsGenerating: (value: boolean) => void
@@ -200,6 +261,7 @@ export interface StoreState {
   renameManualGroup: (groupId: string, newLabel: string) => void
   clearGhostNodes: () => void
   formatCanvas: () => void
+  undoLastAction: () => void
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -212,6 +274,7 @@ export const useStore = create<StoreState>((set) => ({
   aiError: null,
   globalGoal: loadGlobalGoal(),
   isLoading: false,
+  undoStack: [],
   loadFromDb: async () => {
     set({ isLoading: true })
     const [dbNodes, dbEdges] = await Promise.all([
@@ -225,7 +288,10 @@ export const useStore = create<StoreState>((set) => ({
     set((state) => {
       const nodes = [...state.nodes, node]
       schedulePersist(nodes, state.edges)
-      return { nodes }
+      return {
+        nodes,
+        undoStack: pushUndoAction(state.undoStack, { type: 'node-add', nodeId: node.id }),
+      }
     })
   },
   updateNode: (id, data) => {
@@ -260,13 +326,27 @@ export const useStore = create<StoreState>((set) => ({
   },
   deleteNode: (id) => {
     set((state) => {
+      const deletedNode = state.nodes.find((node) => node.id === id)
+      if (!deletedNode) {
+        return state
+      }
+
+      const deletedEdges = state.edges.filter((edge) => edge.source === id || edge.target === id)
       const nodes = state.nodes.filter((node) => node.id !== id)
       const edges = state.edges.filter((edge) => edge.source !== id && edge.target !== id)
       schedulePersist(nodes, edges)
       void deleteAttachmentsForNode(id).catch((error: unknown) => {
         console.error('Failed to delete node attachments:', error)
       })
-      return { nodes, edges }
+      return {
+        nodes,
+        edges,
+        undoStack: pushUndoAction(state.undoStack, {
+          type: 'node-delete',
+          nodes: [deletedNode],
+          edges: deletedEdges,
+        }),
+      }
     })
   },
   addEdge: (edge) => {
@@ -299,12 +379,40 @@ export const useStore = create<StoreState>((set) => ({
           .map((change) => change.id)
       )
 
+      const removedNodeIds = new Set(
+        nonGhostChanges
+          .filter((change) => hasNodeChangeId(change) && change.type === 'remove')
+          .map((change) => change.id)
+      )
+      const removedNodes = state.nodes.filter((node) => removedNodeIds.has(node.id))
+      const removedEdgesFromState =
+        removedNodeIds.size > 0
+          ? state.edges.filter((edge) => removedNodeIds.has(edge.source) || removedNodeIds.has(edge.target))
+          : []
+      const removedEdgesFromBuffer = takeBufferedEdgesForNodes(removedNodeIds)
+      const removedEdges =
+        removedEdgesFromState.length > 0 || removedEdgesFromBuffer.length > 0
+          ? Array.from(
+              new Map(
+                [...removedEdgesFromState, ...removedEdgesFromBuffer].map((edge) => [edge.id, edge])
+              ).values()
+            )
+          : []
+
       const nextNodes = applyNodeChanges(nonGhostChanges, state.nodes) as OMVNode[]
       const nodes = resolveVerticalCollisions(nextNodes, changedNodeIds)
       const ghostNodes = applyNodeChanges(ghostChanges, state.ghostNodes) as GhostNode[]
 
       schedulePersist(nodes, state.edges)
-      return { nodes, ghostNodes }
+      const undoStack =
+        removedNodes.length > 0
+          ? pushUndoAction(state.undoStack, {
+              type: 'node-delete',
+              nodes: removedNodes,
+              edges: removedEdges,
+            })
+          : state.undoStack
+      return { nodes, ghostNodes, undoStack }
     })
   },
   onEdgesChange: (changes) => {
@@ -315,6 +423,18 @@ export const useStore = create<StoreState>((set) => ({
       const nonGhostChanges = changes.filter(
         (change) => !('id' in change && typeof change.id === 'string' && change.id.startsWith('ghost-edge-'))
       )
+
+      const removedEdgeIds = new Set(
+        nonGhostChanges
+          .filter((change) => hasEdgeChangeId(change) && change.type === 'remove')
+          .map((change) => change.id)
+      )
+      if (removedEdgeIds.size > 0) {
+        const removedEdges = state.edges.filter((edge) => removedEdgeIds.has(edge.id))
+        if (removedEdges.length > 0) {
+          addRemovedEdgesToBuffer(removedEdges)
+        }
+      }
 
       const edges = applyEdgeChanges(nonGhostChanges, state.edges) as OMVEdge[]
       const ghostEdges = applyEdgeChanges(ghostChanges, state.ghostEdges) as GhostEdge[]
@@ -381,6 +501,67 @@ export const useStore = create<StoreState>((set) => ({
       schedulePersist(nodes, edges)
 
       return { nodes, edges, ghostNodes, ghostEdges }
+    })
+  },
+  acceptAllGhostNodes: () => {
+    set((state) => {
+      if (state.ghostNodes.length === 0) {
+        return state
+      }
+
+      const now = Date.now()
+      const additions = state.ghostNodes.map((ghostNode, index) => {
+        const newNodeId = `node-${now}-${index}`
+        const newNode: OMVNode = {
+          id: newNodeId,
+          type: ghostNode.data.suggestedType as Exclude<NodeType, 'GHOST'>,
+          data: {
+            text_content: ghostNode.data.text_content,
+            summary_title: ghostNode.data.summary_title,
+          },
+          position: ghostNode.position,
+        }
+
+        return {
+          newNode,
+          ghostNode,
+        }
+      })
+
+      const nodes = [...state.nodes, ...additions.map((entry) => entry.newNode)]
+      const edgesToAdd = additions.map(({ ghostNode, newNode }) =>
+        withDistributedHandles(
+          {
+            source: ghostNode.data.parentId,
+            target: newNode.id,
+            sourceHandle: null,
+            targetHandle: null,
+          },
+          nodes
+        )
+      )
+
+      const edges = edgesToAdd.reduce<OMVEdge[]>((acc, edge) => {
+        const next = addEdge(
+          {
+            source: edge.source,
+            target: edge.target,
+            sourceHandle: edge.sourceHandle,
+            targetHandle: edge.targetHandle,
+          },
+          acc
+        )
+        return next as OMVEdge[]
+      }, state.edges)
+
+      schedulePersist(nodes, edges)
+
+      return {
+        nodes,
+        edges,
+        ghostNodes: [],
+        ghostEdges: [],
+      }
     })
   },
   dismissGhostNode: (ghostId) => {
@@ -488,6 +669,49 @@ export const useStore = create<StoreState>((set) => ({
 
       schedulePersist(nodes, state.edges)
       return { nodes }
+    })
+  },
+  undoLastAction: () => {
+    set((state) => {
+      const action = state.undoStack[state.undoStack.length - 1]
+      if (!action) return state
+
+      const undoStack = state.undoStack.slice(0, -1)
+
+      if (action.type === 'node-add') {
+        const nodes = state.nodes.filter((node) => node.id !== action.nodeId)
+        const edges = state.edges.filter(
+          (edge) => edge.source !== action.nodeId && edge.target !== action.nodeId
+        )
+
+        schedulePersist(nodes, edges)
+        void deleteAttachmentsForNode(action.nodeId).catch((error: unknown) => {
+          console.error('Failed to delete node attachments during undo:', error)
+        })
+        return { nodes, edges, undoStack }
+      }
+
+      const restoredNodeIds = new Set(action.nodes.map((node) => node.id))
+      const existingNodeIds = new Set(state.nodes.map((node) => node.id))
+      const nodesToRestore = action.nodes.filter((node) => !existingNodeIds.has(node.id))
+      const nextNodes = [...state.nodes, ...nodesToRestore]
+      const nextNodeIds = new Set(nextNodes.map((node) => node.id))
+
+      const existingEdgeIds = new Set(state.edges.map((edge) => edge.id))
+      const edgesToRestore = action.edges.filter((edge) => {
+        if (existingEdgeIds.has(edge.id)) return false
+        if (!nextNodeIds.has(edge.source) || !nextNodeIds.has(edge.target)) return false
+        return restoredNodeIds.has(edge.source) || restoredNodeIds.has(edge.target)
+      })
+
+      const nextEdges = [...state.edges, ...edgesToRestore]
+      schedulePersist(nextNodes, nextEdges)
+
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+        undoStack,
+      }
     })
   },
 }))

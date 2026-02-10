@@ -190,6 +190,73 @@ describe('useStore', () => {
     expect(state.edges[0]?.target).toBe(newNode?.id)
   })
 
+  it('accepts all ghost nodes into real nodes and clears suggestions', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().addNode({
+      id: 'parent-1',
+      type: 'MECHANISM',
+      data: { text_content: 'Parent' },
+      position: { x: 0, y: 0 },
+    })
+
+    useStore.getState().setGhostSuggestions(
+      [
+        {
+          id: 'ghost-1',
+          type: 'GHOST',
+          position: { x: 50, y: 60 },
+          data: {
+            parentId: 'parent-1',
+            suggestedType: 'VALIDATION',
+            text_content: 'Ghost validation',
+            ghostId: 'ghost-1',
+          },
+        },
+        {
+          id: 'ghost-2',
+          type: 'GHOST',
+          position: { x: 50, y: 120 },
+          data: {
+            parentId: 'parent-1',
+            suggestedType: 'OBSERVATION',
+            text_content: 'Ghost observation',
+            ghostId: 'ghost-2',
+          },
+        },
+      ],
+      [
+        {
+          id: 'ghost-edge-parent-1-ghost-1',
+          source: 'parent-1',
+          target: 'ghost-1',
+        },
+        {
+          id: 'ghost-edge-parent-1-ghost-2',
+          source: 'parent-1',
+          target: 'ghost-2',
+        },
+      ]
+    )
+
+    useStore.getState().acceptAllGhostNodes()
+
+    const state = useStore.getState()
+    const addedNodes = state.nodes.filter((node) => node.id.startsWith('node-'))
+
+    expect(addedNodes).toHaveLength(2)
+    expect(addedNodes.map((node) => node.type).sort()).toEqual(['OBSERVATION', 'VALIDATION'])
+    expect(addedNodes.map((node) => node.data.text_content).sort()).toEqual([
+      'Ghost observation',
+      'Ghost validation',
+    ])
+    expect(state.ghostNodes).toEqual([])
+    expect(state.ghostEdges).toEqual([])
+    expect(state.edges).toHaveLength(2)
+    expect(state.edges.every((edge) => edge.source === 'parent-1')).toBe(true)
+    expect(new Set(state.edges.map((edge) => edge.target))).toEqual(new Set(addedNodes.map((node) => node.id)))
+  })
+
   it('dismisses ghost nodes', async () => {
     const { useStore } = await createStore()
 
@@ -261,5 +328,96 @@ describe('useStore', () => {
 
     useStore.getState().setNodeGrade('node-grade', -1)
     expect(useStore.getState().nodes.find((node) => node.id === 'node-grade')?.data.grade).toBe(1)
+  })
+
+  it('undoes the latest added node', async () => {
+    const { useStore } = await createStore()
+
+    const node = {
+      id: 'undo-add-1',
+      type: 'OBSERVATION' as const,
+      data: { text_content: 'undo me' },
+      position: { x: 10, y: 20 },
+    }
+
+    useStore.getState().addNode(node)
+    expect(useStore.getState().nodes).toHaveLength(1)
+
+    useStore.getState().undoLastAction()
+    expect(useStore.getState().nodes).toHaveLength(0)
+  })
+
+  it('undoes node deletion and restores connected edges', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().addNode({
+      id: 'undo-delete-source',
+      type: 'OBSERVATION',
+      data: { text_content: 'source' },
+      position: { x: 0, y: 0 },
+    })
+    useStore.getState().addNode({
+      id: 'undo-delete-target',
+      type: 'MECHANISM',
+      data: { text_content: 'target' },
+      position: { x: 100, y: 0 },
+    })
+    useStore.getState().addEdge({
+      id: 'undo-delete-edge',
+      source: 'undo-delete-source',
+      target: 'undo-delete-target',
+    })
+
+    useStore.getState().deleteNode('undo-delete-target')
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-delete-target')).toBeUndefined()
+    expect(useStore.getState().edges.find((edge) => edge.id === 'undo-delete-edge')).toBeUndefined()
+
+    useStore.getState().undoLastAction()
+
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-delete-target')).toBeDefined()
+    expect(useStore.getState().edges.find((edge) => edge.id === 'undo-delete-edge')).toBeDefined()
+  })
+
+  it('undo restores edge when edge removal event happens before node removal', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().addNode({
+      id: 'undo-order-source',
+      type: 'OBSERVATION',
+      data: { text_content: 'source' },
+      position: { x: 0, y: 0 },
+    })
+    useStore.getState().addNode({
+      id: 'undo-order-target',
+      type: 'MECHANISM',
+      data: { text_content: 'target' },
+      position: { x: 100, y: 0 },
+    })
+    useStore.getState().addEdge({
+      id: 'undo-order-edge',
+      source: 'undo-order-source',
+      target: 'undo-order-target',
+    })
+
+    useStore.getState().onEdgesChange([
+      {
+        id: 'undo-order-edge',
+        type: 'remove',
+      },
+    ])
+    useStore.getState().onNodesChange([
+      {
+        id: 'undo-order-target',
+        type: 'remove',
+      },
+    ])
+
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-order-target')).toBeUndefined()
+    expect(useStore.getState().edges.find((edge) => edge.id === 'undo-order-edge')).toBeUndefined()
+
+    useStore.getState().undoLastAction()
+
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-order-target')).toBeDefined()
+    expect(useStore.getState().edges.find((edge) => edge.id === 'undo-order-edge')).toBeDefined()
   })
 })

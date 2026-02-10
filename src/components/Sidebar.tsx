@@ -29,7 +29,22 @@ export const Sidebar = memo(() => {
 
   const onDragStart = (event: DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType)
+    event.dataTransfer.setData('text/plain', nodeType)
     event.dataTransfer.effectAllowed = 'move'
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('stemflow:sidebar-drag-start', {
+          detail: { nodeType },
+        })
+      )
+    }
+  }
+
+  const onDragEnd = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('stemflow:sidebar-drag-end'))
+    }
   }
 
   return (
@@ -43,6 +58,7 @@ export const Sidebar = memo(() => {
         <div
           className="mb-3 cursor-grab rounded-xl bg-gradient-to-r from-blue-500 to-sky-500 p-3 text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
           onDragStart={(event) => onDragStart(event, 'OBSERVATION')}
+          onDragEnd={onDragEnd}
           draggable
           data-testid="sidebar-observation"
         >
@@ -52,6 +68,7 @@ export const Sidebar = memo(() => {
         <div
           className="mb-3 cursor-grab rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 p-3 text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
           onDragStart={(event) => onDragStart(event, 'MECHANISM')}
+          onDragEnd={onDragEnd}
           draggable
           data-testid="sidebar-mechanism"
         >
@@ -61,6 +78,7 @@ export const Sidebar = memo(() => {
         <div
           className="mb-3 cursor-grab rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 p-3 text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
           onDragStart={(event) => onDragStart(event, 'VALIDATION')}
+          onDragEnd={onDragEnd}
           draggable
           data-testid="sidebar-validation"
         >

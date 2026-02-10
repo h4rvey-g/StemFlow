@@ -24,10 +24,85 @@ import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
 import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
-import { getSuggestedTargetTypes } from '@/lib/connection-rules'
+import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
 import { buildManualGroupNodes } from '@/lib/graph'
 
 const DEBUG_GHOSTS = false
+const AUTO_CONNECT_PROXIMITY_PX = 150
+const GHOST_FRAME_PADDING_PX = 18
+const GHOST_ACTION_BAR_GAP_PX = 12
+const GHOST_ACTION_BAR_HEIGHT_PX = 42
+const FALLBACK_GHOST_NODE_WIDTH_PX = 320
+const FALLBACK_GHOST_NODE_HEIGHT_PX = 190
+
+type SidebarNodeType = Exclude<NodeType, 'GHOST'>
+
+type DragDropPreview = {
+  draggedType: SidebarNodeType
+  existingNodeId: string
+  newNodeIsSource: boolean
+  position: {
+    x: number
+    y: number
+  }
+  cursor: {
+    x: number
+    y: number
+  }
+}
+
+const isSidebarNodeType = (value: string): value is SidebarNodeType =>
+  value === 'OBSERVATION' || value === 'MECHANISM' || value === 'VALIDATION'
+
+const getNodeCenter = (node: OMVNode) => {
+  const width = typeof node.width === 'number' ? node.width : 0
+  const height = typeof node.height === 'number' ? node.height : 0
+  return {
+    x: node.position.x + width / 2,
+    y: node.position.y + height / 2,
+  }
+}
+
+const findAutoConnectTarget = (
+  position: { x: number; y: number },
+  draggedType: SidebarNodeType,
+  canvasNodes: OMVNode[],
+  zoom: number
+) => {
+  let nearestNode: OMVNode | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  for (const node of canvasNodes) {
+    const center = getNodeCenter(node)
+    const distance = Math.hypot(center.x - position.x, center.y - position.y)
+    if (distance < nearestDistance) {
+      nearestNode = node
+      nearestDistance = distance
+    }
+  }
+
+  const normalizedZoom = zoom > 0 ? zoom : 1
+  const threshold = AUTO_CONNECT_PROXIMITY_PX / normalizedZoom
+
+  if (!nearestNode || nearestDistance > threshold) {
+    return null
+  }
+
+  const targetNode = nearestNode
+  const existingToNewSuggested = isConnectionSuggested(targetNode.type, draggedType)
+  const newToExistingSuggested = isConnectionSuggested(draggedType, targetNode.type)
+
+  return {
+    existingNodeId: targetNode.id,
+    newNodeIsSource: newToExistingSuggested && !existingToNewSuggested,
+  }
+}
+
+const nodeTypeLabel: Record<SidebarNodeType, string> = {
+  OBSERVATION: 'Observation',
+  MECHANISM: 'Mechanism',
+  VALIDATION: 'Validation',
+}
 
 const nodeTypes = {
   OBSERVATION: ObservationNode,
@@ -63,7 +138,7 @@ const AlignIcon = () => (
 function Canvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const hasLoadedRef = useRef(false)
-  const { screenToFlowPosition, fitView, getNodes } = useReactFlow()
+  const { screenToFlowPosition, fitView, getNodes, getZoom, getViewport } = useReactFlow()
   
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
@@ -72,6 +147,9 @@ function Canvas() {
   const manualGroups = useStore((s) => s.manualGroups)
   const [connectingFromType, setConnectingFromType] = useState<NodeType | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+  const [sidebarDragType, setSidebarDragType] = useState<SidebarNodeType | null>(null)
+  const [dragDropPreview, setDragDropPreview] = useState<DragDropPreview | null>(null)
+  const [viewport, setViewport] = useState(() => ({ x: 0, y: 0, zoom: 1 }))
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
   
@@ -80,10 +158,14 @@ function Canvas() {
   const onEdgesChange = useStore((s) => s.onEdgesChange)
   const onConnect = useStore((s) => s.onConnect)
   const addNode = useStore((s) => s.addNode)
+  const addEdge = useStore((s) => s.addEdge)
   const loadFromDb = useStore((s) => s.loadFromDb)
   const formatCanvas = useStore((s) => s.formatCanvas)
+  const acceptAllGhostNodes = useStore((s) => s.acceptAllGhostNodes)
+  const dismissAllGhostNodes = useStore((s) => s.dismissAllGhostNodes)
   const createManualGroup = useStore((s) => s.createManualGroup)
   const deleteManualGroup = useStore((s) => s.deleteManualGroup)
+  const undoLastAction = useStore((s) => s.undoLastAction)
 
   useEffect(() => {
     if (selectedNodeIds.length >= 2) {
@@ -123,6 +205,17 @@ function Canvas() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      const isUndoKey =
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'z' &&
+        !event.shiftKey
+
+      if (isUndoKey && !isTextEditingTarget(event.target)) {
+        event.preventDefault()
+        undoLastAction()
+        return
+      }
+
       const isSelectAllKey = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a'
       if (!isSelectAllKey || isTextEditingTarget(event.target)) return
 
@@ -143,20 +236,111 @@ function Canvas() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [nodes, storeOnNodesChange])
+  }, [nodes, storeOnNodesChange, undoLastAction])
 
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
+  const clearDragDropPreview = useCallback(() => {
+    setDragDropPreview(null)
   }, [])
+
+  useEffect(() => {
+    const handleDragEnd = () => {
+      setSidebarDragType(null)
+      setDragDropPreview(null)
+    }
+
+    const handleSidebarDragStart = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return
+      const detail = event.detail
+      const nodeType =
+        detail && typeof detail === 'object' && 'nodeType' in detail
+          ? (detail.nodeType as string)
+          : ''
+
+      if (isSidebarNodeType(nodeType)) {
+        setSidebarDragType(nodeType)
+      }
+    }
+
+    const handleSidebarDragEnd = () => {
+      setSidebarDragType(null)
+      setDragDropPreview(null)
+    }
+
+    window.addEventListener('dragend', handleDragEnd)
+    window.addEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
+    window.addEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
+    return () => {
+      window.removeEventListener('dragend', handleDragEnd)
+      window.removeEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
+      window.removeEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
+    }
+  }, [])
+
+  const onDragOver = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+
+      const fromTransfer = event.dataTransfer.getData('application/reactflow')
+      const rawType = isSidebarNodeType(fromTransfer) ? fromTransfer : sidebarDragType
+
+      if (!rawType) {
+        clearDragDropPreview()
+        return
+      }
+
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      })
+
+      const target = findAutoConnectTarget(position, rawType, nodes, getZoom())
+      if (!target) {
+        clearDragDropPreview()
+        return
+      }
+
+      const wrapperRect = reactFlowWrapper.current?.getBoundingClientRect()
+      if (!wrapperRect) return
+
+      const nextPreview: DragDropPreview = {
+        draggedType: rawType,
+        existingNodeId: target.existingNodeId,
+        newNodeIsSource: target.newNodeIsSource,
+        position,
+        cursor: {
+          x: event.clientX - wrapperRect.left,
+          y: event.clientY - wrapperRect.top,
+        },
+      }
+
+      setDragDropPreview((previous) => {
+        if (
+          previous &&
+          previous.draggedType === nextPreview.draggedType &&
+          previous.existingNodeId === nextPreview.existingNodeId &&
+          previous.newNodeIsSource === nextPreview.newNodeIsSource &&
+          Math.abs(previous.position.x - nextPreview.position.x) < 0.5 &&
+          Math.abs(previous.position.y - nextPreview.position.y) < 0.5
+        ) {
+          return previous
+        }
+
+        return nextPreview
+      })
+    },
+    [clearDragDropPreview, getZoom, nodes, screenToFlowPosition, sidebarDragType]
+  )
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault()
 
-      const type = event.dataTransfer.getData('application/reactflow') as NodeType
+      const fromTransfer = event.dataTransfer.getData('application/reactflow')
+      const rawType = isSidebarNodeType(fromTransfer) ? fromTransfer : sidebarDragType
 
-      if (typeof type === 'undefined' || !type) {
+      if (!rawType) {
+        clearDragDropPreview()
         return
       }
 
@@ -167,32 +351,158 @@ function Canvas() {
 
       const newNode: OMVNode = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type,
+        type: rawType,
         position,
         data: { text_content: 'New node' },
       }
 
       addNode(newNode)
+
+      const target = findAutoConnectTarget(position, rawType, nodes, getZoom())
+      if (target) {
+        const source = target.newNodeIsSource ? newNode.id : target.existingNodeId
+        const targetId = target.newNodeIsSource ? target.existingNodeId : newNode.id
+
+        addEdge({
+          id: `edge-${source}-${targetId}-${Date.now()}`,
+          source,
+          target: targetId,
+        })
+      }
+
+      setSidebarDragType(null)
+      clearDragDropPreview()
     },
-    [screenToFlowPosition, addNode]
+    [addEdge, addNode, clearDragDropPreview, getZoom, nodes, screenToFlowPosition, sidebarDragType]
   )
+
+  const handleCanvasDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const nextTarget = event.relatedTarget
+      if (nextTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
+        return
+      }
+      clearDragDropPreview()
+    },
+    [clearDragDropPreview]
+  )
+
+  const previewTargetNode = useMemo(() => {
+    if (!dragDropPreview) return null
+    return nodes.find((node) => node.id === dragDropPreview.existingNodeId) ?? null
+  }, [dragDropPreview, nodes])
+
+  const previewLine = useMemo(() => {
+    if (!dragDropPreview || !previewTargetNode) return null
+
+    const viewport = getViewport()
+    const toCanvasPoint = (point: { x: number; y: number }) => ({
+      x: point.x * viewport.zoom + viewport.x,
+      y: point.y * viewport.zoom + viewport.y,
+    })
+
+    const existingCenter = getNodeCenter(previewTargetNode)
+    const newNodeCenter = dragDropPreview.position
+
+    const startPoint = dragDropPreview.newNodeIsSource ? newNodeCenter : existingCenter
+    const endPoint = dragDropPreview.newNodeIsSource ? existingCenter : newNodeCenter
+
+    return {
+      start: toCanvasPoint(startPoint),
+      end: toCanvasPoint(endPoint),
+    }
+  }, [dragDropPreview, getViewport, previewTargetNode])
+
+  const previewTargetLabel =
+    previewTargetNode && isSidebarNodeType(previewTargetNode.type)
+      ? nodeTypeLabel[previewTargetNode.type]
+      : 'nearby node'
+
+  const ghostSuggestionFrame = useMemo(() => {
+    if (ghostNodes.length === 0) return null
+
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (const ghostNode of ghostNodes) {
+      const width =
+        typeof ghostNode.width === 'number' && ghostNode.width > 0
+          ? ghostNode.width
+          : FALLBACK_GHOST_NODE_WIDTH_PX
+      const height =
+        typeof ghostNode.height === 'number' && ghostNode.height > 0
+          ? ghostNode.height
+          : FALLBACK_GHOST_NODE_HEIGHT_PX
+
+      minX = Math.min(minX, ghostNode.position.x)
+      minY = Math.min(minY, ghostNode.position.y)
+      maxX = Math.max(maxX, ghostNode.position.x + width)
+      maxY = Math.max(maxY, ghostNode.position.y + height)
+    }
+
+    const frameX = minX - GHOST_FRAME_PADDING_PX
+    const frameY = minY - GHOST_FRAME_PADDING_PX
+    const frameWidth = maxX - minX + GHOST_FRAME_PADDING_PX * 2
+    const frameHeight = maxY - minY + GHOST_FRAME_PADDING_PX * 2
+
+    const toScreen = (point: { x: number; y: number }) => ({
+      x: point.x * viewport.zoom + viewport.x,
+      y: point.y * viewport.zoom + viewport.y,
+    })
+
+    const topLeft = toScreen({ x: frameX, y: frameY })
+    const screenWidth = frameWidth * viewport.zoom
+    const screenHeight = frameHeight * viewport.zoom
+
+    const preferredHeaderY = topLeft.y - GHOST_ACTION_BAR_HEIGHT_PX - GHOST_ACTION_BAR_GAP_PX
+    const headerY = preferredHeaderY >= 8 ? preferredHeaderY : topLeft.y + screenHeight + GHOST_ACTION_BAR_GAP_PX
+
+    return {
+      frameX: topLeft.x,
+      frameY: topLeft.y,
+      frameWidth: screenWidth,
+      frameHeight: screenHeight,
+      headerX: topLeft.x,
+      headerY,
+      count: ghostNodes.length,
+    }
+  }, [ghostNodes, viewport])
+
+  useEffect(() => {
+    setViewport(getViewport())
+  }, [getViewport])
 
   const allNodes = useMemo(() => {
     const groupedNodes = buildManualGroupNodes(nodes, manualGroups)
     const suggestedTargets = connectingFromType ? getSuggestedTargetTypes(connectingFromType) : []
 
     const decorated = nodes.map((node) => {
+      const previewClassName =
+        dragDropPreview?.existingNodeId === node.id
+          ? ' ring-4 ring-cyan-400 ring-offset-2 ring-offset-slate-100 animate-pulse'
+          : ''
+
       if (suggestedTargets.includes(node.type)) {
         return {
           ...node,
-          className: `${node.className ?? ''} ring-2 ring-indigo-400 ring-offset-2`,
+          className: `${node.className ?? ''} ring-2 ring-indigo-400 ring-offset-2${previewClassName}`,
         }
       }
+
+      if (previewClassName) {
+        return {
+          ...node,
+          className: `${node.className ?? ''}${previewClassName}`,
+        }
+      }
+
       return node
     })
 
     return [...groupedNodes, ...decorated, ...ghostNodes]
-  }, [nodes, manualGroups, ghostNodes, connectingFromType])
+  }, [nodes, manualGroups, ghostNodes, connectingFromType, dragDropPreview])
 
   const displayEdges = useMemo(() => {
     const combinedEdges = [...edges, ...ghostEdges]
@@ -411,12 +721,54 @@ function Canvas() {
         <div
           className="relative flex-1 overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200"
           ref={reactFlowWrapper}
+          onDragLeave={handleCanvasDragLeave}
           style={{ height: '100%', width: '100%' }}
         >
           {aiError && (
             <div className="absolute right-4 top-4 z-50 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 shadow-lg">
               {aiError}
             </div>
+          )}
+          {dragDropPreview && previewTargetNode && (
+            <>
+              {previewLine && (
+                <svg className="pointer-events-none absolute inset-0 z-20 overflow-visible" aria-hidden>
+                  <defs>
+                    <linearGradient id="drag-link-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.75" />
+                      <stop offset="100%" stopColor="#0891b2" stopOpacity="1" />
+                    </linearGradient>
+                  </defs>
+                  <line
+                    x1={previewLine.start.x}
+                    y1={previewLine.start.y}
+                    x2={previewLine.end.x}
+                    y2={previewLine.end.y}
+                    stroke="url(#drag-link-gradient)"
+                    strokeWidth={3}
+                    strokeDasharray="8 8"
+                    strokeLinecap="round"
+                    opacity={0.9}
+                  />
+                </svg>
+              )}
+              <div
+                className="pointer-events-none absolute z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-500 bg-white/80 shadow-[0_0_0_10px_rgba(14,165,233,0.2)]"
+                style={{ left: dragDropPreview.cursor.x, top: dragDropPreview.cursor.y }}
+                aria-hidden
+              />
+              <div
+                className="pointer-events-none absolute z-30 rounded-lg border border-cyan-200 bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-md backdrop-blur"
+                style={{
+                  left: dragDropPreview.cursor.x + 16,
+                  top: Math.max(12, dragDropPreview.cursor.y - 12),
+                  transform: 'translateY(-100%)',
+                }}
+                aria-hidden
+              >
+                Release to connect with {previewTargetLabel}
+              </div>
+            </>
           )}
             <ReactFlow
               nodes={allNodes}
@@ -438,6 +790,7 @@ function Canvas() {
               deleteKeyCode={['Backspace', 'Delete']}
               onDrop={onDrop}
               onDragOver={onDragOver}
+              onMove={(_event, nextViewport) => setViewport(nextViewport)}
               fitView
             >
             <Background 
@@ -462,6 +815,45 @@ function Canvas() {
               className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur"
               maskColor="rgb(241, 245, 249, 0.6)"
             />
+            {ghostSuggestionFrame ? (
+              <>
+                <div
+                  className="pointer-events-none absolute rounded-2xl border-2 border-dashed border-cyan-300 bg-cyan-100/30"
+                  style={{
+                    left: ghostSuggestionFrame.frameX,
+                    top: ghostSuggestionFrame.frameY,
+                    width: ghostSuggestionFrame.frameWidth,
+                    height: ghostSuggestionFrame.frameHeight,
+                    zIndex: 40,
+                  }}
+                  aria-hidden
+                />
+                <div
+                  className="absolute flex items-center gap-2 rounded-xl border border-cyan-200 bg-white/95 p-2 shadow-md backdrop-blur"
+                  style={{
+                    left: ghostSuggestionFrame.headerX,
+                    top: ghostSuggestionFrame.headerY,
+                    zIndex: 45,
+                  }}
+                  data-testid="ghost-suggestion-actions"
+                >
+                  <button
+                    onClick={acceptAllGhostNodes}
+                    className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-300 hover:bg-emerald-100"
+                    data-testid="ghost-group-accept-all"
+                  >
+                    Accept All ({ghostSuggestionFrame.count})
+                  </button>
+                  <button
+                    onClick={dismissAllGhostNodes}
+                    className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-100"
+                    data-testid="ghost-group-dismiss-all"
+                  >
+                    Dismiss All
+                  </button>
+                </div>
+              </>
+            ) : null}
           </ReactFlow>
         </div>
       </div>
