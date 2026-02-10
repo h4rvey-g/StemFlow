@@ -29,6 +29,7 @@ describe('useGenerate', () => {
       ],
       edges: [],
       globalGoal: 'Test goal',
+      episodeRatings: {},
       setGhostNodes: mockSetGhostNodes,
       setGhostSuggestions: mockSetGhostSuggestions,
       setIsGenerating: mockSetIsGenerating,
@@ -58,6 +59,7 @@ describe('useGenerate', () => {
         position: { x: 100, y: 100 },
       },
     ])
+    vi.spyOn(graph, 'buildEpisodeSuggestionContext').mockReturnValue([])
 
     vi.spyOn(aiService, 'generateNextSteps').mockResolvedValue([
       { type: 'MECHANISM', text_content: 'Suggested mechanism' },
@@ -81,13 +83,14 @@ describe('useGenerate', () => {
       'openai',
       'sk-test',
       null,
-      null
+      null,
+      []
     )
     expect(mockSetGhostSuggestions).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
           type: 'GHOST',
-          position: { x: 380, y: 100 },
+          position: { x: 480, y: 100 },
           data: expect.objectContaining({
             parentId: 'node-1',
             suggestedType: 'MECHANISM',
@@ -143,6 +146,7 @@ describe('useGenerate', () => {
     })
 
     vi.spyOn(aiService, 'generateNextSteps').mockRejectedValue(new Error('AI Error'))
+    vi.spyOn(graph, 'buildEpisodeSuggestionContext').mockReturnValue([])
 
     const { result } = renderHook(() => useGenerate())
 

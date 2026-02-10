@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useStore } from '@/stores/useStore'
 import { loadApiKeys } from '@/lib/api-keys'
 import { generateNextSteps } from '@/lib/ai-service'
-import { getNodeAncestry } from '@/lib/graph'
+import { buildEpisodeSuggestionContext, getNodeAncestry } from '@/lib/graph'
 import { createRightwardSiblingPosition } from '@/lib/node-layout'
 import type { GhostEdge, GhostNode } from '@/types/nodes'
 
@@ -10,6 +10,8 @@ export function useGenerate() {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const globalGoal = useStore((s) => s.globalGoal)
+  const episodeRatings = useStore((s) => s.episodeRatings)
+  const hiddenEpisodeIds = useStore((s) => s.hiddenEpisodeIds)
   const setGhostSuggestions = useStore((s) => s.setGhostSuggestions)
   const setIsGenerating = useStore((s) => s.setIsGenerating)
   const setAiError = useStore((s) => s.setAiError)
@@ -52,13 +54,22 @@ export function useGenerate() {
       }
 
       const ancestry = getNodeAncestry(nodeId, nodes, edges)
+      const episodes = buildEpisodeSuggestionContext(nodes, edges, episodeRatings, hiddenEpisodeIds)
       const parentNode = nodes.find((n) => n.id === nodeId)
 
       if (!parentNode) {
         throw new Error('Node not found')
       }
 
-      const steps = await generateNextSteps(ancestry, globalGoal, provider, apiKey, model, baseUrl)
+      const steps = await generateNextSteps(
+        ancestry,
+        globalGoal,
+        provider,
+        apiKey,
+        model,
+        baseUrl,
+        episodes
+      )
 
       const ghostNodes: GhostNode[] = steps.map((step, index) => {
         const ghostId = `ghost-${Date.now()}-${index}`
@@ -95,7 +106,16 @@ export function useGenerate() {
     } finally {
       setIsGenerating(false)
     }
-  }, [nodes, edges, globalGoal, setGhostSuggestions, setIsGenerating, setAiError])
+  }, [
+    nodes,
+    edges,
+    globalGoal,
+    episodeRatings,
+    hiddenEpisodeIds,
+    setGhostSuggestions,
+    setIsGenerating,
+    setAiError,
+  ])
 
   return { generate, isGenerating }
 }

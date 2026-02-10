@@ -28,6 +28,25 @@ export interface NodeData {
   imageDescription?: string | null
 }
 
+export interface EpisodeGroupNodeData {
+  episodeId: string
+  rating: number
+  nodeIds: [string, string, string]
+}
+
+export interface ManualGroupNodeData {
+  groupId: string
+  label: string
+  count: number
+  nodeIds: string[]
+}
+
+export interface ManualNodeGroup {
+  id: string
+  nodeIds: string[]
+  label: string
+}
+
 export interface GhostNodeData {
   text_content: string
   suggestedType: NodeType

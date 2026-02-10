@@ -4,6 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 
 import { loadApiKeys } from '@/lib/api-keys'
 import { formatAncestryForPrompt } from '@/lib/graph'
+import type { EpisodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
 import type { NodeType, OMVNode } from '@/types/nodes'
 import modelsSchema from '@/lib/models-schema.json'
@@ -12,6 +13,42 @@ export interface GeneratedStep {
   type: NodeType
   text_content: string
 }
+
+const clampEpisodeRating = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
+
+const RATING_NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+}
+
+const RATING_CJK_DIGITS: Record<string, number> = {
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+}
+
+const RATING_LETTER_GRADES: Record<string, number> = {
+  'A+': 5,
+  A: 5,
+  'A-': 5,
+  'B+': 4,
+  B: 4,
+  'B-': 4,
+  'C+': 3,
+  C: 3,
+  'C-': 3,
+  'D+': 2,
+  D: 2,
+  'D-': 2,
+  F: 1,
+}
+
+const RATING_KEYS = ['rating', 'score', 'stars', 'star', 'grade'] as const
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
 
@@ -61,6 +98,176 @@ const getProviderSettings = async () => {
   }
 
   throw new Error(`No API key configured for provider: ${provider}`)
+}
+
+const parseNumericRatingFromText = (text: string): number | null => {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const direct = Number(trimmed)
+  if (Number.isFinite(direct)) {
+    return clampEpisodeRating(direct)
+  }
+
+  const fractional = trimmed.match(/(-?\d+(?:\.\d+)?)\s*\/\s*(5|10)\b/i)
+  if (fractional) {
+    const numerator = Number(fractional[1])
+    const denominator = Number(fractional[2])
+    if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
+      const normalized = denominator === 10 ? numerator / 2 : numerator
+      return clampEpisodeRating(normalized)
+    }
+  }
+
+  const labeledNumber = trimmed.match(/(?:rating|score|stars?|grade)\s*[:=-]?\s*(-?\d+(?:\.\d+)?)/i)
+  if (labeledNumber) {
+    const numeric = Number(labeledNumber[1])
+    if (Number.isFinite(numeric)) {
+      return clampEpisodeRating(numeric)
+    }
+  }
+
+  const labeledLetter = trimmed.match(/(?:rating|score|stars?|grade)\s*[:=-]?\s*([ABCDF][+-]?)/i)
+  if (labeledLetter) {
+    const mapped = RATING_LETTER_GRADES[labeledLetter[1].toUpperCase()]
+    if (typeof mapped === 'number') {
+      return mapped
+    }
+  }
+
+  const starred = trimmed.match(/[★⭐]/g)
+  if (starred && starred.length >= 1) {
+    return clampEpisodeRating(starred.length)
+  }
+
+  const cjkDigit = trimmed.match(/[一二三四五]/)
+  if (cjkDigit) {
+    const mapped = RATING_CJK_DIGITS[cjkDigit[0]]
+    if (typeof mapped === 'number') {
+      return mapped
+    }
+  }
+
+  const lowered = trimmed.toLowerCase()
+  for (const [word, value] of Object.entries(RATING_NUMBER_WORDS)) {
+    if (new RegExp(`\\b${word}\\b`).test(lowered)) {
+      return value
+    }
+  }
+
+  const anyNumber = trimmed.match(/-?\d+(?:\.\d+)?/)
+  if (anyNumber) {
+    const numeric = Number(anyNumber[0])
+    if (Number.isFinite(numeric)) {
+      return clampEpisodeRating(numeric)
+    }
+  }
+
+  return null
+}
+
+const extractEpisodeRating = (value: unknown, depth = 0): number | null => {
+  if (depth > 3 || value == null) return null
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return clampEpisodeRating(value)
+  }
+
+  if (typeof value === 'string') {
+    return parseNumericRatingFromText(value)
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const extracted = extractEpisodeRating(item, depth + 1)
+      if (extracted !== null) return extracted
+    }
+    return null
+  }
+
+  if (isRecord(value)) {
+    for (const key of RATING_KEYS) {
+      const extracted = extractEpisodeRating(value[key], depth + 1)
+      if (extracted !== null) return extracted
+    }
+
+    for (const nested of Object.values(value)) {
+      const extracted = extractEpisodeRating(nested, depth + 1)
+      if (extracted !== null) return extracted
+    }
+  }
+
+  return null
+}
+
+const parseEpisodeRating = (content: string): number | null => {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const direct = parseNumericRatingFromText(trimmed)
+  if (direct !== null) return direct
+
+  const jsonCandidates = Array.from(new Set([trimmed, extractJsonPayload(trimmed)]))
+  for (const candidate of jsonCandidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      const extracted = extractEpisodeRating(parsed)
+      if (extracted !== null) {
+        return extracted
+      }
+    } catch {
+      // Ignore and continue fallback parsing.
+    }
+  }
+
+  const fallback = extractEpisodeRating(trimmed)
+  if (fallback !== null) return fallback
+
+  return null
+}
+
+const recoverEpisodeRating = async (
+  text: string,
+  settings: Awaited<ReturnType<typeof getProviderSettings>>
+): Promise<number | null> => {
+  const response = await fetch(`/api/ai/${settings.provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey: settings.apiKey,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Extract a 1-5 integer rating from the provided text. Return exactly one integer digit from 1 to 5.',
+        },
+        {
+          role: 'user',
+          content: `Text:\n${text}`,
+        },
+      ],
+      stream: false,
+      temperature: 0,
+      maxTokens: 8,
+    }),
+  })
+
+  if (!response.ok) {
+    return null
+  }
+
+  const json = (await response.json()) as { text?: string }
+  const candidate = typeof json.text === 'string' ? json.text : ''
+  if (!candidate.trim()) {
+    return null
+  }
+
+  const parsed = parseNumericRatingFromText(candidate)
+  return parsed === null ? null : parsed
 }
 
 const readErrorMessage = async (response: Response): Promise<string> => {
@@ -127,6 +334,75 @@ export const describeImageWithVision = async (
   }
 
   return description
+}
+
+export const gradeEpisode = async (
+  episode: EpisodeSuggestionContext,
+  globalGoal: string
+): Promise<number> => {
+  const settings = await getProviderSettings()
+  const goal = globalGoal.trim() || 'No global goal provided.'
+
+  const prompt = [
+    'Evaluate this OMV research episode and assign a star rating from 1 to 5.',
+    'Use this scale:',
+    '- 5: Strong, clear, high-confidence episode that should guide future work.',
+    '- 4: Promising episode with good evidence and practical value.',
+    '- 3: Neutral/mixed evidence; useful but not decisive.',
+    '- 2: Weak evidence, unclear mechanism, or limited usefulness.',
+    '- 1: Poor, contradictory, or misleading episode to avoid.',
+    `Global research goal: ${goal}`,
+    `Mechanism: ${episode.mechanism}`,
+    `Validation: ${episode.validation}`,
+    `Observation: ${episode.observation}`,
+    'Respond with ONLY JSON in this shape: {"rating": <1-5>}',
+  ].join('\n')
+
+  const messages: AiMessage[] = [
+    {
+      role: 'system',
+      content:
+        'You are a strict scientific reviewer. Output must be valid JSON with a single integer rating from 1 to 5.',
+    },
+    {
+      role: 'user',
+      content: prompt,
+    },
+  ]
+
+  const response = await fetch(`/api/ai/${settings.provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey: settings.apiKey,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      messages,
+      stream: false,
+      temperature: 0,
+      maxTokens: 80,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response))
+  }
+
+  const json = (await response.json()) as { text?: string }
+  const text = typeof json.text === 'string' ? json.text : ''
+
+  const parsed = parseEpisodeRating(text)
+  if (parsed !== null) {
+    return parsed
+  }
+
+  const recovered = await recoverEpisodeRating(text, settings).catch(() => null)
+  if (recovered !== null) {
+    return recovered
+  }
+
+  // Neutral fallback keeps the UI usable even if provider output is malformed.
+  return 3
 }
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
@@ -223,12 +499,54 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
   })
 }
 
+const formatEpisodeGuidance = (episodes: EpisodeSuggestionContext[]): string => {
+  if (episodes.length === 0) {
+    return 'No rated Mechanism -> Validation -> Observation episodes were detected.'
+  }
+
+  const sorted = [...episodes].sort((a, b) => b.rating - a.rating)
+  const prioritized = sorted.filter((episode) => episode.rating >= 4)
+  const downweighted = sorted.filter((episode) => episode.rating === 1)
+
+  const sections: string[] = []
+
+  if (prioritized.length > 0) {
+    sections.push('High-priority episodes (rating 4-5):')
+    prioritized.slice(0, 5).forEach((episode, index) => {
+      sections.push(
+        `${index + 1}. [${episode.id}]`,
+        `   Mechanism: ${episode.mechanism}`,
+        `   Validation: ${episode.validation}`,
+        `   Observation: ${episode.observation}`
+      )
+    })
+  } else {
+    sections.push('No episodes rated 4 or 5 yet.')
+  }
+
+  if (downweighted.length > 0) {
+    sections.push('Episodes to avoid (rating 1):')
+    downweighted.slice(0, 5).forEach((episode, index) => {
+      sections.push(
+        `${index + 1}. [${episode.id}]`,
+        `   Mechanism: ${episode.mechanism}`,
+        `   Validation: ${episode.validation}`,
+        `   Observation: ${episode.observation}`
+      )
+    })
+  }
+
+  return sections.join('\n')
+}
+
 const buildPrompt = (
   ancestry: OMVNode[],
   globalGoal: string,
-  expectedNextType: NodeType | null
+  expectedNextType: NodeType | null,
+  episodes: EpisodeSuggestionContext[]
 ): string => {
   const ancestryContext = formatAncestryForPrompt(ancestry)
+  const episodesContext = formatEpisodeGuidance(episodes)
   const goal = globalGoal.trim() || 'No global goal provided.'
   const context = ancestryContext.trim() || 'No ancestry context provided.'
 
@@ -240,6 +558,10 @@ const buildPrompt = (
     expectedNextType
       ? `STRICT SEQUENCE RULE: The current node is ${ancestry[ancestry.length - 1]?.type}. Every suggested step MUST have type "${expectedNextType}".`
       : 'Follow the OMV sequence based on the current context.',
+    'Rated episode context:',
+    episodesContext,
+    'Prioritization rule: strongly prioritize suggestions aligned with episodes rated 4 or 5 stars.',
+    'Avoid or heavily downweight suggestions that resemble episodes rated 1 star unless absolutely necessary.',
     '',
     'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
     'Format: [{"type": "OBSERVATION", "text_content": "description"}, ...]',
@@ -256,11 +578,12 @@ export async function generateNextSteps(
   provider: 'openai' | 'anthropic' | 'openai-compatible',
   apiKey: string,
   model?: string | null,
-  baseUrl?: string | null
+  baseUrl?: string | null,
+  episodes: EpisodeSuggestionContext[] = []
 ): Promise<GeneratedStep[]> {
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
-  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType)
+  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType, episodes)
 
   try {
     let content: string

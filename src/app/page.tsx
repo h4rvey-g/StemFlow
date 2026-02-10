@@ -12,6 +12,7 @@ import ReactFlow, {
   type OnConnectStart,
   type Edge,
   type Node,
+  type NodeChange,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -22,7 +23,10 @@ import { ObservationNode } from '@/components/nodes/ObservationNode'
 import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
+import { EpisodeGroupNode } from '@/components/nodes/EpisodeGroupNode'
+import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
 import { getSuggestedTargetTypes } from '@/lib/connection-rules'
+import { buildEpisodeGroupNodes, buildManualGroupNodes } from '@/lib/graph'
 
 const DEBUG_GHOSTS = false
 
@@ -31,6 +35,8 @@ const nodeTypes = {
   MECHANISM: MechanismNode,
   VALIDATION: ValidationNode,
   GHOST: GhostNode,
+  EPISODE_GROUP: EpisodeGroupNode,
+  MANUAL_GROUP: ManualGroupNode,
 }
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
@@ -59,22 +65,49 @@ const AlignIcon = () => (
 function Canvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const hasLoadedRef = useRef(false)
-  const { screenToFlowPosition, fitView } = useReactFlow()
+  const { screenToFlowPosition, fitView, getNodes } = useReactFlow()
   
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const ghostNodes = useStore((s) => s.ghostNodes)
   const ghostEdges = useStore((s) => s.ghostEdges)
+  const manualGroups = useStore((s) => s.manualGroups)
   const [connectingFromType, setConnectingFromType] = useState<NodeType | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+  const persistedSelectionRef = useRef<string[]>([])
   
   const aiError = useStore((s) => s.aiError)
-  const onNodesChange = useStore((s) => s.onNodesChange)
+  const storeOnNodesChange = useStore((s) => s.onNodesChange)
   const onEdgesChange = useStore((s) => s.onEdgesChange)
   const onConnect = useStore((s) => s.onConnect)
   const addNode = useStore((s) => s.addNode)
   const loadFromDb = useStore((s) => s.loadFromDb)
   const formatCanvas = useStore((s) => s.formatCanvas)
+  const createManualGroup = useStore((s) => s.createManualGroup)
+  const deleteManualGroup = useStore((s) => s.deleteManualGroup)
+  const deleteNode = useStore((s) => s.deleteNode)
+  const episodeRatings = useStore((s) => s.episodeRatings)
+  const hiddenEpisodeIds = useStore((s) => s.hiddenEpisodeIds)
+
+  useEffect(() => {
+    if (selectedNodeIds.length >= 2) {
+      persistedSelectionRef.current = selectedNodeIds
+    }
+  }, [selectedNodeIds])
+
+  useEffect(() => {
+    const selectedFromStore = nodes
+      .filter(
+        (node) =>
+          node.selected === true &&
+          (node.type === 'OBSERVATION' || node.type === 'MECHANISM' || node.type === 'VALIDATION')
+      )
+      .map((node) => node.id)
+
+    if (selectedFromStore.length === 0) return
+    setSelectedNodeIds(selectedFromStore)
+  }, [nodes])
 
   useEffect(() => {
     if (hasLoadedRef.current) return
@@ -115,6 +148,8 @@ function Canvas() {
   )
 
   const allNodes = useMemo(() => {
+    const groupedNodes = buildManualGroupNodes(nodes, manualGroups)
+    const episodeGroups = buildEpisodeGroupNodes(nodes, edges, episodeRatings, hiddenEpisodeIds)
     const suggestedTargets = connectingFromType ? getSuggestedTargetTypes(connectingFromType) : []
 
     const decorated = nodes.map((node) => {
@@ -127,8 +162,8 @@ function Canvas() {
       return node
     })
 
-    return [...decorated, ...ghostNodes]
-  }, [nodes, ghostNodes, connectingFromType])
+    return [...episodeGroups, ...groupedNodes, ...decorated, ...ghostNodes]
+  }, [nodes, manualGroups, edges, ghostNodes, connectingFromType, episodeRatings, hiddenEpisodeIds])
 
   const displayEdges = useMemo(() => {
     const combinedEdges = [...edges, ...ghostEdges]
@@ -166,6 +201,7 @@ function Canvas() {
   }, [edges, ghostEdges, hoveredNodeId])
 
   const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (node.type === 'EPISODE_GROUP' || node.type === 'MANUAL_GROUP') return
     setHoveredNodeId(node.id)
   }, [])
 
@@ -187,6 +223,161 @@ function Canvas() {
     setConnectingFromType(null)
   }, [])
 
+  const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
+    const nextIds = selectedNodes
+      .filter(
+        (node) =>
+          node.type === 'OBSERVATION' || node.type === 'MECHANISM' || node.type === 'VALIDATION'
+      )
+      .map((node) => node.id)
+    setSelectedNodeIds(nextIds)
+  }, [])
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const isManualGroupNode = (id: string) => id.startsWith('manual-group-')
+      const isEpisodeGroupNode = (id: string) => id.startsWith('episode-group-')
+
+      const manualGroupPositionChanges: NodeChange[] = []
+      const manualGroupRemoveChanges: NodeChange[] = []
+      const episodeGroupPositionChanges: NodeChange[] = []
+      const episodeGroupRemoveChanges: NodeChange[] = []
+      const otherChanges: NodeChange[] = []
+
+      for (const change of changes) {
+        if (!('id' in change) || typeof change.id !== 'string') {
+          otherChanges.push(change)
+          continue
+        }
+
+        if (isManualGroupNode(change.id)) {
+          if (change.type === 'position' && change.dragging && change.position) {
+            manualGroupPositionChanges.push(change)
+          } else if (change.type === 'remove') {
+            manualGroupRemoveChanges.push(change)
+          }
+          continue
+        }
+
+        if (isEpisodeGroupNode(change.id)) {
+          if (change.type === 'position' && change.dragging && change.position) {
+            episodeGroupPositionChanges.push(change)
+          } else if (change.type === 'remove') {
+            episodeGroupRemoveChanges.push(change)
+          }
+          continue
+        }
+
+        if (!isManualGroupNode(change.id) && !isEpisodeGroupNode(change.id)) {
+          otherChanges.push(change)
+        }
+      }
+
+      for (const removeChange of manualGroupRemoveChanges) {
+        if (removeChange.type === 'remove' && 'id' in removeChange) {
+          const groupId = removeChange.id.replace('manual-group-', '')
+          deleteManualGroup(groupId)
+        }
+      }
+
+      if (episodeGroupRemoveChanges.length > 0) {
+        const currentNodes = getNodes()
+        const nodeIdsToDelete = new Set<string>()
+
+        for (const removeChange of episodeGroupRemoveChanges) {
+          if (removeChange.type !== 'remove') continue
+
+          const groupNode = currentNodes.find((node) => node.id === removeChange.id)
+          if (!groupNode || groupNode.type !== 'EPISODE_GROUP') continue
+
+          const memberNodeIds = (groupNode.data as { nodeIds?: string[] }).nodeIds ?? []
+          for (const memberId of memberNodeIds) {
+            nodeIdsToDelete.add(memberId)
+          }
+        }
+
+        for (const memberId of Array.from(nodeIdsToDelete)) {
+          deleteNode(memberId)
+        }
+      }
+
+      const groupPositionChanges = [...manualGroupPositionChanges, ...episodeGroupPositionChanges]
+
+      if (groupPositionChanges.length > 0) {
+        const currentNodes = getNodes()
+        const memberPositionChanges: NodeChange[] = []
+
+        for (const groupChange of groupPositionChanges) {
+          if (groupChange.type !== 'position' || !groupChange.position) continue
+
+          const groupNode = currentNodes.find((node) => node.id === groupChange.id)
+          if (!groupNode || (groupNode.type !== 'MANUAL_GROUP' && groupNode.type !== 'EPISODE_GROUP')) {
+            continue
+          }
+
+          const deltaX = groupChange.position.x - groupNode.position.x
+          const deltaY = groupChange.position.y - groupNode.position.y
+
+          const memberNodeIds = (groupNode.data as { nodeIds?: string[] }).nodeIds ?? []
+          for (const memberId of memberNodeIds) {
+            const memberNode = currentNodes.find((node) => node.id === memberId)
+            if (memberNode) {
+              memberPositionChanges.push({
+                id: memberId,
+                type: 'position',
+                position: {
+                  x: memberNode.position.x + deltaX,
+                  y: memberNode.position.y + deltaY,
+                },
+                dragging: true,
+              })
+            }
+          }
+        }
+
+        if (memberPositionChanges.length > 0) {
+          storeOnNodesChange([...otherChanges, ...memberPositionChanges])
+          return
+        }
+      }
+
+      if (otherChanges.length > 0) {
+        storeOnNodesChange(otherChanges)
+      }
+    },
+    [storeOnNodesChange, getNodes, deleteManualGroup, deleteNode]
+  )
+
+  const handleGroupSelectedMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      const allCanvasNodes = getNodes()
+
+      const selectedIdsFromCanvas = allCanvasNodes
+        .filter(
+          (node) =>
+            node.selected === true &&
+            (node.type === 'OBSERVATION' || node.type === 'MECHANISM' || node.type === 'VALIDATION')
+        )
+        .map((node) => node.id)
+
+      const candidateIds = selectedIdsFromCanvas.length >= 2 ? selectedIdsFromCanvas : selectedNodeIds
+
+      if (candidateIds.length >= 2) {
+        persistedSelectionRef.current = candidateIds
+        createManualGroup(candidateIds)
+        return
+      }
+
+      if (persistedSelectionRef.current.length >= 2) {
+        createManualGroup(persistedSelectionRef.current)
+      }
+    },
+    [createManualGroup, getNodes, selectedNodeIds]
+  )
+
   void fitView
 
   return (
@@ -201,7 +392,14 @@ function Canvas() {
             BETA
           </span>
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <button
+            onMouseDown={handleGroupSelectedMouseDown}
+            className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100"
+            data-testid="topbar-group-selected"
+          >
+            Group Selected ({selectedNodeIds.length})
+          </button>
           <button
             onClick={formatCanvas}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
@@ -232,13 +430,14 @@ function Canvas() {
               onConnect={onConnect}
               onConnectStart={handleConnectStart}
               onConnectEnd={handleConnectEnd}
+              onSelectionChange={handleSelectionChange}
               onNodeMouseEnter={handleNodeMouseEnter}
               onNodeMouseLeave={handleNodeMouseLeave}
               nodeTypes={nodeTypes}
               defaultEdgeOptions={defaultEdgeOptions}
               selectionOnDrag
-              selectionKeyCode="Shift"
-              multiSelectionKeyCode="Shift"
+              selectionKeyCode={null}
+              multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
               deleteKeyCode={['Backspace', 'Delete']}
               onDrop={onDrop}
               onDragOver={onDragOver}

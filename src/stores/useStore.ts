@@ -6,7 +6,15 @@ import type { DbNode } from '@/lib/db'
 import { db } from '@/lib/db'
 import { deleteAttachmentsForNode } from '@/lib/file-storage'
 import { formatNodesNeatly, resolveVerticalCollisions } from '@/lib/node-layout'
-import type { GhostEdge, GhostNode, NodeData, NodeType, OMVEdge, OMVNode } from '@/types/nodes'
+import type {
+  GhostEdge,
+  GhostNode,
+  ManualNodeGroup,
+  NodeData,
+  NodeType,
+  OMVEdge,
+  OMVNode,
+} from '@/types/nodes'
 
 export type { NodeType, OMVNode } from '@/types/nodes'
 
@@ -20,8 +28,58 @@ let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
 const GLOBAL_GOAL_STORAGE = 'stemflow:globalGoal'
+const EPISODE_RATINGS_STORAGE = 'stemflow:episodeRatings'
+const MANUAL_GROUPS_STORAGE = 'stemflow:manualGroups'
+const HIDDEN_EPISODES_STORAGE = 'stemflow:hiddenEpisodes'
 const SOURCE_HANDLE_IDS = ['s-middle', 's-top', 's-bottom'] as const
 const TARGET_HANDLE_IDS = ['t-middle', 't-top', 't-bottom'] as const
+
+type EpisodeRatings = Record<string, number>
+
+const saveManualGroups = (groups: ManualNodeGroup[]) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(MANUAL_GROUPS_STORAGE, JSON.stringify(groups))
+  } catch {
+    // ignore
+  }
+}
+
+const loadManualGroups = (): ManualNodeGroup[] => {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(MANUAL_GROUPS_STORAGE)
+    if (!raw) return []
+
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .map((entry): ManualNodeGroup | null => {
+        if (!entry || typeof entry !== 'object') return null
+        const id = Reflect.get(entry, 'id')
+        const label = Reflect.get(entry, 'label')
+        const nodeIds = Reflect.get(entry, 'nodeIds')
+
+        if (typeof id !== 'string' || typeof label !== 'string' || !Array.isArray(nodeIds)) {
+          return null
+        }
+
+        const cleanedNodeIds = nodeIds.filter((value): value is string => typeof value === 'string')
+        if (cleanedNodeIds.length < 2) return null
+
+        return {
+          id,
+          label,
+          nodeIds: Array.from(new Set(cleanedNodeIds)),
+        }
+      })
+      .filter((group): group is ManualNodeGroup => group !== null)
+  } catch {
+    return []
+  }
+}
 
 type HandleAssignable = {
   source?: string | null
@@ -36,6 +94,53 @@ const loadGlobalGoal = (): string => {
     return window.localStorage.getItem(GLOBAL_GOAL_STORAGE) ?? ''
   } catch {
     return ''
+  }
+}
+
+const loadEpisodeRatings = (): EpisodeRatings => {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    const raw = window.localStorage.getItem(EPISODE_RATINGS_STORAGE)
+    if (!raw) return {}
+
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    const result: EpisodeRatings = {}
+    Object.entries(parsed).forEach(([episodeId, rating]) => {
+      if (typeof rating !== 'number' || Number.isNaN(rating)) return
+      result[episodeId] = Math.min(5, Math.max(1, Math.round(rating)))
+    })
+    return result
+  } catch {
+    return {}
+  }
+}
+
+const loadHiddenEpisodeIds = (): string[] => {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_EPISODES_STORAGE)
+    if (!raw) return []
+
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    return Array.from(new Set(parsed.filter((value): value is string => typeof value === 'string')))
+  } catch {
+    return []
+  }
+}
+
+const saveHiddenEpisodeIds = (episodeIds: string[]) => {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(HIDDEN_EPISODES_STORAGE, JSON.stringify(episodeIds))
+  } catch {
+    // ignore
   }
 }
 
@@ -139,11 +244,14 @@ export const setPersistDelay = (value: number) => {
 export interface StoreState {
   nodes: OMVNode[]
   edges: OMVEdge[]
+  manualGroups: ManualNodeGroup[]
   ghostNodes: GhostNode[]
   ghostEdges: GhostEdge[]
   isGenerating: boolean
   aiError: string | null
   globalGoal: string
+  episodeRatings: EpisodeRatings
+  hiddenEpisodeIds: string[]
   isLoading: boolean
   loadFromDb: () => Promise<void>
   addNode: (node: OMVNode) => void
@@ -163,6 +271,11 @@ export interface StoreState {
   setIsGenerating: (value: boolean) => void
   setAiError: (error: string | null) => void
   setGlobalGoal: (goal: string) => void
+  setEpisodeRating: (episodeId: string, rating: number) => void
+  ungroupEpisode: (episodeId: string) => void
+  createManualGroup: (nodeIds: string[]) => void
+  deleteManualGroup: (groupId: string) => void
+  renameManualGroup: (groupId: string, newLabel: string) => void
   clearGhostNodes: () => void
   formatCanvas: () => void
 }
@@ -170,11 +283,14 @@ export interface StoreState {
 export const useStore = create<StoreState>((set) => ({
   nodes: [],
   edges: [],
+  manualGroups: loadManualGroups(),
   ghostNodes: [],
   ghostEdges: [],
   isGenerating: false,
   aiError: null,
   globalGoal: loadGlobalGoal(),
+  episodeRatings: loadEpisodeRatings(),
+  hiddenEpisodeIds: loadHiddenEpisodeIds(),
   isLoading: false,
   loadFromDb: async () => {
     set({ isLoading: true })
@@ -368,6 +484,87 @@ export const useStore = create<StoreState>((set) => ({
       }
     }
     set(() => ({ globalGoal: goal }))
+  },
+  setEpisodeRating: (episodeId, rating) => {
+    const normalizedRating = Math.min(5, Math.max(1, Math.round(rating)))
+    set((state) => {
+      const episodeRatings = {
+        ...state.episodeRatings,
+        [episodeId]: normalizedRating,
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(EPISODE_RATINGS_STORAGE, JSON.stringify(episodeRatings))
+        } catch {
+          // ignore
+        }
+      }
+
+      return { episodeRatings }
+    })
+  },
+  ungroupEpisode: (episodeId) => {
+    set((state) => {
+      if (state.hiddenEpisodeIds.includes(episodeId)) {
+        return state
+      }
+
+      const hiddenEpisodeIds = [...state.hiddenEpisodeIds, episodeId]
+      saveHiddenEpisodeIds(hiddenEpisodeIds)
+      return { hiddenEpisodeIds }
+    })
+  },
+  createManualGroup: (nodeIds) => {
+    const uniqueNodeIds = Array.from(new Set(nodeIds))
+    if (uniqueNodeIds.length < 2) return
+
+    set((state) => {
+      const existingIds = new Set(state.nodes.map((node) => node.id))
+      const filteredNodeIds = uniqueNodeIds.filter((nodeId) => existingIds.has(nodeId))
+      if (filteredNodeIds.length < 2) {
+        return state
+      }
+
+      const sortedCandidate = [...filteredNodeIds].sort()
+      const hasEquivalentGroup = state.manualGroups.some((group) => {
+        if (group.nodeIds.length !== sortedCandidate.length) return false
+        const sortedExisting = [...group.nodeIds].sort()
+        return sortedExisting.every((value, index) => value === sortedCandidate[index])
+      })
+
+      if (hasEquivalentGroup) {
+        return state
+      }
+
+      const manualGroups = [
+        ...state.manualGroups,
+        {
+          id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          label: `Group ${state.manualGroups.length + 1}`,
+          nodeIds: filteredNodeIds,
+        },
+      ]
+
+      saveManualGroups(manualGroups)
+      return { manualGroups }
+    })
+  },
+  deleteManualGroup: (groupId) => {
+    set((state) => {
+      const manualGroups = state.manualGroups.filter((g) => g.id !== groupId)
+      saveManualGroups(manualGroups)
+      return { manualGroups }
+    })
+  },
+  renameManualGroup: (groupId, newLabel) => {
+    set((state) => {
+      const manualGroups = state.manualGroups.map((g) =>
+        g.id === groupId ? { ...g, label: newLabel } : g
+      )
+      saveManualGroups(manualGroups)
+      return { manualGroups }
+    })
   },
   clearGhostNodes: () => {
     set(() => ({ ghostNodes: [], ghostEdges: [] }))

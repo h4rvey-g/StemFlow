@@ -242,4 +242,14 @@ describe('useStore', () => {
     expect(useStore.getState().aiError).toBeNull()
     expect(useStore.getState().globalGoal).toBe('')
   })
+
+  it('stores hidden episode ids for ungrouped episodes', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().ungroupEpisode('episode-a')
+    useStore.getState().ungroupEpisode('episode-a')
+    useStore.getState().ungroupEpisode('episode-b')
+
+    expect(useStore.getState().hiddenEpisodeIds).toEqual(['episode-a', 'episode-b'])
+  })
 })
