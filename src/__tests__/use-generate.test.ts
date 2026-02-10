@@ -29,7 +29,6 @@ describe('useGenerate', () => {
       ],
       edges: [],
       globalGoal: 'Test goal',
-      episodeRatings: {},
       setGhostNodes: mockSetGhostNodes,
       setGhostSuggestions: mockSetGhostSuggestions,
       setIsGenerating: mockSetIsGenerating,
@@ -59,7 +58,7 @@ describe('useGenerate', () => {
         position: { x: 100, y: 100 },
       },
     ])
-    vi.spyOn(graph, 'buildEpisodeSuggestionContext').mockReturnValue([])
+    vi.spyOn(graph, 'buildNodeSuggestionContext').mockReturnValue([])
 
     vi.spyOn(aiService, 'generateNextSteps').mockResolvedValue([
       { type: 'MECHANISM', text_content: 'Suggested mechanism' },
@@ -146,7 +145,7 @@ describe('useGenerate', () => {
     })
 
     vi.spyOn(aiService, 'generateNextSteps').mockRejectedValue(new Error('AI Error'))
-    vi.spyOn(graph, 'buildEpisodeSuggestionContext').mockReturnValue([])
+    vi.spyOn(graph, 'buildNodeSuggestionContext').mockReturnValue([])
 
     const { result } = renderHook(() => useGenerate())
 

@@ -23,10 +23,9 @@ import { ObservationNode } from '@/components/nodes/ObservationNode'
 import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
-import { EpisodeGroupNode } from '@/components/nodes/EpisodeGroupNode'
 import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
 import { getSuggestedTargetTypes } from '@/lib/connection-rules'
-import { buildEpisodeGroupNodes, buildManualGroupNodes } from '@/lib/graph'
+import { buildManualGroupNodes } from '@/lib/graph'
 
 const DEBUG_GHOSTS = false
 
@@ -35,7 +34,6 @@ const nodeTypes = {
   MECHANISM: MechanismNode,
   VALIDATION: ValidationNode,
   GHOST: GhostNode,
-  EPISODE_GROUP: EpisodeGroupNode,
   MANUAL_GROUP: ManualGroupNode,
 }
 
@@ -86,9 +84,6 @@ function Canvas() {
   const formatCanvas = useStore((s) => s.formatCanvas)
   const createManualGroup = useStore((s) => s.createManualGroup)
   const deleteManualGroup = useStore((s) => s.deleteManualGroup)
-  const deleteNode = useStore((s) => s.deleteNode)
-  const episodeRatings = useStore((s) => s.episodeRatings)
-  const hiddenEpisodeIds = useStore((s) => s.hiddenEpisodeIds)
 
   useEffect(() => {
     if (selectedNodeIds.length >= 2) {
@@ -149,7 +144,6 @@ function Canvas() {
 
   const allNodes = useMemo(() => {
     const groupedNodes = buildManualGroupNodes(nodes, manualGroups)
-    const episodeGroups = buildEpisodeGroupNodes(nodes, edges, episodeRatings, hiddenEpisodeIds)
     const suggestedTargets = connectingFromType ? getSuggestedTargetTypes(connectingFromType) : []
 
     const decorated = nodes.map((node) => {
@@ -162,8 +156,8 @@ function Canvas() {
       return node
     })
 
-    return [...episodeGroups, ...groupedNodes, ...decorated, ...ghostNodes]
-  }, [nodes, manualGroups, edges, ghostNodes, connectingFromType, episodeRatings, hiddenEpisodeIds])
+    return [...groupedNodes, ...decorated, ...ghostNodes]
+  }, [nodes, manualGroups, ghostNodes, connectingFromType])
 
   const displayEdges = useMemo(() => {
     const combinedEdges = [...edges, ...ghostEdges]
@@ -201,7 +195,7 @@ function Canvas() {
   }, [edges, ghostEdges, hoveredNodeId])
 
   const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
-    if (node.type === 'EPISODE_GROUP' || node.type === 'MANUAL_GROUP') return
+    if (node.type === 'MANUAL_GROUP') return
     setHoveredNodeId(node.id)
   }, [])
 
@@ -236,12 +230,9 @@ function Canvas() {
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const isManualGroupNode = (id: string) => id.startsWith('manual-group-')
-      const isEpisodeGroupNode = (id: string) => id.startsWith('episode-group-')
 
       const manualGroupPositionChanges: NodeChange[] = []
       const manualGroupRemoveChanges: NodeChange[] = []
-      const episodeGroupPositionChanges: NodeChange[] = []
-      const episodeGroupRemoveChanges: NodeChange[] = []
       const otherChanges: NodeChange[] = []
 
       for (const change of changes) {
@@ -259,16 +250,7 @@ function Canvas() {
           continue
         }
 
-        if (isEpisodeGroupNode(change.id)) {
-          if (change.type === 'position' && change.dragging && change.position) {
-            episodeGroupPositionChanges.push(change)
-          } else if (change.type === 'remove') {
-            episodeGroupRemoveChanges.push(change)
-          }
-          continue
-        }
-
-        if (!isManualGroupNode(change.id) && !isEpisodeGroupNode(change.id)) {
+        if (!isManualGroupNode(change.id)) {
           otherChanges.push(change)
         }
       }
@@ -280,28 +262,7 @@ function Canvas() {
         }
       }
 
-      if (episodeGroupRemoveChanges.length > 0) {
-        const currentNodes = getNodes()
-        const nodeIdsToDelete = new Set<string>()
-
-        for (const removeChange of episodeGroupRemoveChanges) {
-          if (removeChange.type !== 'remove') continue
-
-          const groupNode = currentNodes.find((node) => node.id === removeChange.id)
-          if (!groupNode || groupNode.type !== 'EPISODE_GROUP') continue
-
-          const memberNodeIds = (groupNode.data as { nodeIds?: string[] }).nodeIds ?? []
-          for (const memberId of memberNodeIds) {
-            nodeIdsToDelete.add(memberId)
-          }
-        }
-
-        for (const memberId of Array.from(nodeIdsToDelete)) {
-          deleteNode(memberId)
-        }
-      }
-
-      const groupPositionChanges = [...manualGroupPositionChanges, ...episodeGroupPositionChanges]
+      const groupPositionChanges = [...manualGroupPositionChanges]
 
       if (groupPositionChanges.length > 0) {
         const currentNodes = getNodes()
@@ -311,7 +272,7 @@ function Canvas() {
           if (groupChange.type !== 'position' || !groupChange.position) continue
 
           const groupNode = currentNodes.find((node) => node.id === groupChange.id)
-          if (!groupNode || (groupNode.type !== 'MANUAL_GROUP' && groupNode.type !== 'EPISODE_GROUP')) {
+          if (!groupNode || groupNode.type !== 'MANUAL_GROUP') {
             continue
           }
 
@@ -345,7 +306,7 @@ function Canvas() {
         storeOnNodesChange(otherChanges)
       }
     },
-    [storeOnNodesChange, getNodes, deleteManualGroup, deleteNode]
+    [storeOnNodesChange, getNodes, deleteManualGroup]
   )
 
   const handleGroupSelectedMouseDown = useCallback(
@@ -436,7 +397,7 @@ function Canvas() {
               nodeTypes={nodeTypes}
               defaultEdgeOptions={defaultEdgeOptions}
               selectionOnDrag
-              selectionKeyCode={null}
+              selectionKeyCode="Shift"
               multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
               deleteKeyCode={['Backspace', 'Delete']}
               onDrop={onDrop}

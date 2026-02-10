@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useStore } from '@/stores/useStore'
 import { loadApiKeys } from '@/lib/api-keys'
 import { generateNextSteps } from '@/lib/ai-service'
-import { buildEpisodeSuggestionContext, getNodeAncestry } from '@/lib/graph'
+import { buildNodeSuggestionContext, getNodeAncestry } from '@/lib/graph'
 import { createRightwardSiblingPosition } from '@/lib/node-layout'
 import type { GhostEdge, GhostNode } from '@/types/nodes'
 
@@ -10,8 +10,6 @@ export function useGenerate() {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const globalGoal = useStore((s) => s.globalGoal)
-  const episodeRatings = useStore((s) => s.episodeRatings)
-  const hiddenEpisodeIds = useStore((s) => s.hiddenEpisodeIds)
   const setGhostSuggestions = useStore((s) => s.setGhostSuggestions)
   const setIsGenerating = useStore((s) => s.setIsGenerating)
   const setAiError = useStore((s) => s.setAiError)
@@ -54,7 +52,7 @@ export function useGenerate() {
       }
 
       const ancestry = getNodeAncestry(nodeId, nodes, edges)
-      const episodes = buildEpisodeSuggestionContext(nodes, edges, episodeRatings, hiddenEpisodeIds)
+      const gradedNodes = buildNodeSuggestionContext(nodes)
       const parentNode = nodes.find((n) => n.id === nodeId)
 
       if (!parentNode) {
@@ -68,7 +66,7 @@ export function useGenerate() {
         apiKey,
         model,
         baseUrl,
-        episodes
+        gradedNodes
       )
 
       const ghostNodes: GhostNode[] = steps.map((step, index) => {
@@ -110,8 +108,6 @@ export function useGenerate() {
     nodes,
     edges,
     globalGoal,
-    episodeRatings,
-    hiddenEpisodeIds,
     setGhostSuggestions,
     setIsGenerating,
     setAiError,

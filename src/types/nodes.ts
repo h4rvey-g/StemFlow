@@ -19,6 +19,7 @@ export interface NodeFileAttachment extends FileMetadata {
 
 export interface NodeData {
   text_content: string
+  grade?: number | null
   attachments?: NodeFileAttachment[]
   // Legacy fields kept for backward compatibility with older persisted data.
   fileMetadata?: FileMetadata | null
@@ -26,12 +27,6 @@ export interface NodeData {
   fileProcessingError?: string | null
   fileTextExcerpt?: string | null
   imageDescription?: string | null
-}
-
-export interface EpisodeGroupNodeData {
-  episodeId: string
-  rating: number
-  nodeIds: [string, string, string]
 }
 
 export interface ManualGroupNodeData {

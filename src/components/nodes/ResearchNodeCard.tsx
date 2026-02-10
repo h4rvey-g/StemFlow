@@ -5,6 +5,7 @@ import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
 import { useAiGeneration } from '@/hooks/useAiGeneration'
 import { useAutoResizingTextarea } from '@/hooks/useAutoResizingTextarea'
 import { describeImageWithVision } from '@/lib/ai-service'
+import { gradeNode } from '@/lib/ai-service'
 import { processFileInWorker } from '@/lib/file-processing-client'
 import {
   deleteFileAttachment,
@@ -28,6 +29,7 @@ interface ResearchNodeCardProps extends NodeProps<NodeData> {
 const FILE_ACCEPT = 'image/*,application/pdf,text/plain,.txt,.md,.json,.csv'
 const EMPTY_ATTACHMENTS: NodeFileAttachment[] = []
 const TEXT_CLAMP_WORD_THRESHOLD = 150
+const STAR_VALUES = [1, 2, 3, 4, 5] as const
 const AUXILIARY_HANDLE_STYLE: React.CSSProperties = {
   width: 8,
   height: 8,
@@ -77,6 +79,18 @@ const normalizeAttachments = (nodeData?: NodeData): NodeFileAttachment[] => {
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'File processing failed'
 
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden className="h-3.5 w-3.5">
+      <path
+        d="M10 1.6l2.47 5 5.52.8-4 3.9.94 5.5L10 14.2l-4.93 2.6.94-5.5-4-3.9 5.52-.8L10 1.6z"
+        className={filled ? 'fill-amber-400 stroke-amber-500' : 'fill-transparent stroke-slate-400'}
+        strokeWidth="1.2"
+      />
+    </svg>
+  )
+}
+
 export function ResearchNodeCard({
   id,
   data,
@@ -90,6 +104,8 @@ export function ResearchNodeCard({
 }: ResearchNodeCardProps) {
   const updateNode = useStore((state) => state.updateNode)
   const updateNodeData = useStore((state) => state.updateNodeData)
+  const setNodeGrade = useStore((state) => state.setNodeGrade)
+  const globalGoal = useStore((state) => state.globalGoal)
   const { generate, isGenerating } = useAiGeneration()
   const updateNodeInternals = useUpdateNodeInternals()
 
@@ -98,6 +114,8 @@ export function ResearchNodeCard({
 
   const [aiOpen, setAiOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isGradingWithAi, setIsGradingWithAi] = useState(false)
+  const [gradingError, setGradingError] = useState<string | null>(null)
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
   const [isTextExpanded, setIsTextExpanded] = useState(false)
 
@@ -105,6 +123,7 @@ export function ResearchNodeCard({
   const hasText = textContent.trim().length > 0
   const shouldOfferTextToggle = countWords(textContent) > TEXT_CLAMP_WORD_THRESHOLD
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
+  const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
   const attachments = normalizeAttachments(data)
   const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
 
@@ -139,6 +158,13 @@ export function ResearchNodeCard({
 
   useEffect(() => {
     if (!selected) setAiOpen(false)
+  }, [selected])
+
+  useEffect(() => {
+    if (!selected) {
+      setGradingError(null)
+      setIsGradingWithAi(false)
+    }
   }, [selected])
 
   useEffect(() => {
@@ -302,6 +328,29 @@ export function ResearchNodeCard({
     setAttachments(current.filter((attachment) => attachment.id !== attachmentId))
   }, [getCurrentAttachments, setAttachments])
 
+  const handleAiGrade = useCallback(async () => {
+    if (isGradingWithAi) return
+
+    setGradingError(null)
+    setIsGradingWithAi(true)
+
+    try {
+      const nextGrade = await gradeNode(
+        {
+          id,
+          type: nodeType,
+          content: textContent.trim(),
+        },
+        globalGoal
+      )
+      setNodeGrade(id, nextGrade)
+    } catch (error) {
+      setGradingError(error instanceof Error ? error.message : 'Failed to grade node with AI.')
+    } finally {
+      setIsGradingWithAi(false)
+    }
+  }, [globalGoal, id, isGradingWithAi, nodeType, setNodeGrade, textContent])
+
   return (
     <div className="relative w-[320px] overflow-hidden rounded-xl bg-white py-3 pl-4 pr-3 shadow-[0_8px_24px_rgba(15,23,42,0.12)]">
       <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 ${accentClassName}`} aria-hidden />
@@ -417,54 +466,83 @@ export function ResearchNodeCard({
       ) : null}
 
       {selected ? (
-        <div className="nodrag mt-2 flex gap-2">
-          <button
-            className="flex-1 rounded-md bg-indigo-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:opacity-50"
-            onClick={() => generate(id)}
-            disabled={isGenerating}
-          >
-            {isGenerating ? 'Generating...' : 'Generate'}
-          </button>
+        <div className="nodrag mt-2 space-y-2">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1">
+            <div className="flex items-center gap-0.5" role="group" aria-label="Node grade">
+              {STAR_VALUES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="rounded-sm text-slate-600 transition-colors hover:text-amber-500"
+                  aria-label={`Set grade ${value} star${value === 1 ? '' : 's'}`}
+                  onClick={() => setNodeGrade(id, value)}
+                >
+                  <StarIcon filled={value <= nodeGrade} />
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => {
+                void handleAiGrade()
+              }}
+              disabled={isGradingWithAi}
+            >
+              {isGradingWithAi ? 'Grading...' : 'Grade with AI'}
+            </button>
+          </div>
+          {gradingError ? <p className="text-[11px] text-rose-600">{gradingError}</p> : null}
 
-          <button
-            type="button"
-            className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
-            {isUploading ? 'Uploading...' : 'Attach'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="flex-1 rounded-md bg-indigo-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:opacity-50"
+              onClick={() => generate(id)}
+              disabled={isGenerating}
+            >
+              {isGenerating ? 'Generating...' : 'Generate'}
+            </button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept={FILE_ACCEPT}
-            multiple
-            onChange={(event) => {
-              void handleFileChange(event)
-            }}
-          />
+            <button
+              type="button"
+              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? 'Uploading...' : 'Attach'}
+            </button>
 
-          <button
-            ref={aiButtonRef}
-            type="button"
-            className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
-            aria-label="AI Actions"
-            onClick={() => setAiOpen((value) => !value)}
-          >
-            AI
-          </button>
-
-          {aiOpen && aiButtonRef.current ? (
-            <NodePopover
-              nodeId={id}
-              nodeType={nodeType}
-              isOpen={aiOpen}
-              onClose={() => setAiOpen(false)}
-              anchorEl={aiButtonRef.current}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept={FILE_ACCEPT}
+              multiple
+              onChange={(event) => {
+                void handleFileChange(event)
+              }}
             />
-          ) : null}
+
+            <button
+              ref={aiButtonRef}
+              type="button"
+              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
+              aria-label="AI Actions"
+              onClick={() => setAiOpen((value) => !value)}
+            >
+              AI
+            </button>
+
+            {aiOpen && aiButtonRef.current ? (
+              <NodePopover
+                nodeId={id}
+                nodeType={nodeType}
+                isOpen={aiOpen}
+                onClose={() => setAiOpen(false)}
+                anchorEl={aiButtonRef.current}
+              />
+            ) : null}
+          </div>
         </div>
       ) : null}
 

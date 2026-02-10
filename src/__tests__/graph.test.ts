@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { OMVEdge, OMVNode } from '@/types/nodes'
 import {
-  buildEpisodeGroupNodes,
+  buildNodeSuggestionContext,
   buildManualGroupNodes,
-  buildEpisodeSuggestionContext,
-  detectResearchEpisodes,
   formatAncestryForPrompt,
   getNodeAncestry,
 } from '@/lib/graph'
@@ -73,130 +71,66 @@ describe('graph utilities', () => {
     )
   })
 
-  it('detects mechanism-validation-observation episodes', () => {
-    const nodes = [
-      createNode('mechanism-1', 'MECHANISM', 40, 'Potential causal chain'),
-      createNode('validation-1', 'VALIDATION', 250, 'Run comparison experiment'),
-      createNode('observation-1', 'OBSERVATION', 480, 'Signal increases by 20%'),
-      createNode('noise-1', 'OBSERVATION', 720, 'Unrelated observation'),
-    ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
-      createEdge('edge-noise', 'mechanism-1', 'noise-1'),
-    ]
-
-    const episodes = detectResearchEpisodes(nodes, edges)
-
-    expect(episodes).toHaveLength(1)
-    expect(episodes[0]?.id).toBe('episode-mechanism-1-validation-1-observation-1')
-    expect(episodes[0]?.nodeIds).toEqual(['mechanism-1', 'validation-1', 'observation-1'])
-    expect(episodes[0]?.bounds.width).toBeGreaterThan(0)
-    expect(episodes[0]?.bounds.height).toBeGreaterThan(0)
-  })
-
-  it('builds episode group nodes with default and saved ratings', () => {
-    const nodes = [
-      createNode('mechanism-1', 'MECHANISM', 20, 'Mechanism hypothesis'),
-      createNode('validation-1', 'VALIDATION', 220, 'Validation plan'),
-      createNode('observation-1', 'OBSERVATION', 420, 'Observed output'),
-    ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
-    ]
-
-    const withoutSavedRating = buildEpisodeGroupNodes(nodes, edges, {})
-    const withSavedRating = buildEpisodeGroupNodes(nodes, edges, {
-      'episode-mechanism-1-validation-1-observation-1': 5,
-    })
-
-    expect(withoutSavedRating).toHaveLength(1)
-    expect(withoutSavedRating[0]?.data.rating).toBe(3)
-    expect(withSavedRating[0]?.data.rating).toBe(5)
-    expect(withSavedRating[0]?.type).toBe('EPISODE_GROUP')
-  })
-
-  it('skips hidden episode groups', () => {
-    const nodes = [
-      createNode('mechanism-1', 'MECHANISM', 20, 'Mechanism hypothesis'),
-      createNode('validation-1', 'VALIDATION', 220, 'Validation plan'),
-      createNode('observation-1', 'OBSERVATION', 420, 'Observed output'),
-    ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
-    ]
-    const hiddenEpisodeIds = ['episode-mechanism-1-validation-1-observation-1']
-
-    const groups = buildEpisodeGroupNodes(nodes, edges, {}, hiddenEpisodeIds)
-
-    expect(groups).toHaveLength(0)
-  })
-
-  it('builds episode suggestion context with fallback text', () => {
-    const nodes = [
-      createNode('mechanism-1', 'MECHANISM', 30, ''),
-      createNode('validation-1', 'VALIDATION', 240, 'Validation strategy'),
-      createNode('observation-1', 'OBSERVATION', 460, 'Measured outcome'),
-    ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
-    ]
-
-    const context = buildEpisodeSuggestionContext(nodes, edges, {
-      'episode-mechanism-1-validation-1-observation-1': 1,
-    })
-
-    expect(context).toEqual([
-      {
-        id: 'episode-mechanism-1-validation-1-observation-1',
-        rating: 1,
-        mechanism: 'No content provided.',
-        validation: 'Validation strategy',
-        observation: 'Measured outcome',
-      },
-    ])
-  })
-
-  it('skips hidden episodes in suggestion context', () => {
+  it('builds suggestion context from graded nodes only', () => {
     const nodes = [
       createNode('mechanism-1', 'MECHANISM', 30, 'Mechanism text'),
       createNode('validation-1', 'VALIDATION', 240, 'Validation text'),
       createNode('observation-1', 'OBSERVATION', 460, 'Observation text'),
     ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
-    ]
-    const hiddenEpisodeIds = ['episode-mechanism-1-validation-1-observation-1']
+    nodes[0].data.grade = 5
+    nodes[1].data.grade = 2
 
-    const context = buildEpisodeSuggestionContext(nodes, edges, {}, hiddenEpisodeIds)
+    const context = buildNodeSuggestionContext(nodes)
 
-    expect(context).toEqual([])
+    expect(context).toEqual([
+      {
+        id: 'mechanism-1',
+        type: 'MECHANISM',
+        grade: 5,
+        content: 'Mechanism text',
+      },
+      {
+        id: 'validation-1',
+        type: 'VALIDATION',
+        grade: 2,
+        content: 'Validation text',
+      },
+    ])
   })
 
-  it('expands episode bounds for long unmeasured node content', () => {
-    const longValidation =
-      'Validation details '.repeat(80)
-    const longObservation =
-      'Observation details '.repeat(70)
-
+  it('normalizes invalid grades in suggestion context', () => {
     const nodes = [
-      createNode('mechanism-1', 'MECHANISM', 40, 'Mechanism hypothesis'),
-      createNode('validation-1', 'VALIDATION', 280, longValidation),
-      createNode('observation-1', 'OBSERVATION', 520, longObservation),
-    ]
-    const edges = [
-      createEdge('edge-mv', 'mechanism-1', 'validation-1'),
-      createEdge('edge-vo', 'validation-1', 'observation-1'),
+      createNode('node-1', 'OBSERVATION', 10, 'Content A'),
+      createNode('node-2', 'MECHANISM', 20, 'Content B'),
+      createNode('node-3', 'VALIDATION', 30, ''),
     ]
 
-    const episodes = detectResearchEpisodes(nodes, edges)
+    nodes[0].data.grade = 10
+    nodes[1].data.grade = 0
+    nodes[2].data.grade = 3
 
-    expect(episodes).toHaveLength(1)
-    expect(episodes[0]?.bounds.height).toBeGreaterThan(500)
+    const context = buildNodeSuggestionContext(nodes)
+
+    expect(context).toEqual([
+      {
+        id: 'node-1',
+        type: 'OBSERVATION',
+        grade: 5,
+        content: 'Content A',
+      },
+      {
+        id: 'node-2',
+        type: 'MECHANISM',
+        grade: 1,
+        content: 'Content B',
+      },
+      {
+        id: 'node-3',
+        type: 'VALIDATION',
+        grade: 3,
+        content: 'No content provided.',
+      },
+    ])
   })
 
   it('builds manual group nodes for selected node groups', () => {

@@ -4,7 +4,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 
 import { loadApiKeys } from '@/lib/api-keys'
 import { formatAncestryForPrompt } from '@/lib/graph'
-import type { EpisodeSuggestionContext } from '@/lib/graph'
+import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
 import type { NodeType, OMVNode } from '@/types/nodes'
 import modelsSchema from '@/lib/models-schema.json'
@@ -14,7 +14,7 @@ export interface GeneratedStep {
   text_content: string
 }
 
-const clampEpisodeRating = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
+const clampGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
 
 const RATING_NUMBER_WORDS: Record<string, number> = {
   one: 1,
@@ -106,7 +106,7 @@ const parseNumericRatingFromText = (text: string): number | null => {
 
   const direct = Number(trimmed)
   if (Number.isFinite(direct)) {
-    return clampEpisodeRating(direct)
+    return clampGrade(direct)
   }
 
   const fractional = trimmed.match(/(-?\d+(?:\.\d+)?)\s*\/\s*(5|10)\b/i)
@@ -115,7 +115,7 @@ const parseNumericRatingFromText = (text: string): number | null => {
     const denominator = Number(fractional[2])
     if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
       const normalized = denominator === 10 ? numerator / 2 : numerator
-      return clampEpisodeRating(normalized)
+      return clampGrade(normalized)
     }
   }
 
@@ -123,7 +123,7 @@ const parseNumericRatingFromText = (text: string): number | null => {
   if (labeledNumber) {
     const numeric = Number(labeledNumber[1])
     if (Number.isFinite(numeric)) {
-      return clampEpisodeRating(numeric)
+      return clampGrade(numeric)
     }
   }
 
@@ -137,7 +137,7 @@ const parseNumericRatingFromText = (text: string): number | null => {
 
   const starred = trimmed.match(/[★⭐]/g)
   if (starred && starred.length >= 1) {
-    return clampEpisodeRating(starred.length)
+    return clampGrade(starred.length)
   }
 
   const cjkDigit = trimmed.match(/[一二三四五]/)
@@ -159,18 +159,18 @@ const parseNumericRatingFromText = (text: string): number | null => {
   if (anyNumber) {
     const numeric = Number(anyNumber[0])
     if (Number.isFinite(numeric)) {
-      return clampEpisodeRating(numeric)
+      return clampGrade(numeric)
     }
   }
 
   return null
 }
 
-const extractEpisodeRating = (value: unknown, depth = 0): number | null => {
+const extractGrade = (value: unknown, depth = 0): number | null => {
   if (depth > 3 || value == null) return null
 
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return clampEpisodeRating(value)
+    return clampGrade(value)
   }
 
   if (typeof value === 'string') {
@@ -179,7 +179,7 @@ const extractEpisodeRating = (value: unknown, depth = 0): number | null => {
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      const extracted = extractEpisodeRating(item, depth + 1)
+      const extracted = extractGrade(item, depth + 1)
       if (extracted !== null) return extracted
     }
     return null
@@ -187,12 +187,12 @@ const extractEpisodeRating = (value: unknown, depth = 0): number | null => {
 
   if (isRecord(value)) {
     for (const key of RATING_KEYS) {
-      const extracted = extractEpisodeRating(value[key], depth + 1)
+      const extracted = extractGrade(value[key], depth + 1)
       if (extracted !== null) return extracted
     }
 
     for (const nested of Object.values(value)) {
-      const extracted = extractEpisodeRating(nested, depth + 1)
+      const extracted = extractGrade(nested, depth + 1)
       if (extracted !== null) return extracted
     }
   }
@@ -200,7 +200,7 @@ const extractEpisodeRating = (value: unknown, depth = 0): number | null => {
   return null
 }
 
-const parseEpisodeRating = (content: string): number | null => {
+const parseGrade = (content: string): number | null => {
   const trimmed = content.trim()
   if (!trimmed) {
     return null
@@ -213,7 +213,7 @@ const parseEpisodeRating = (content: string): number | null => {
   for (const candidate of jsonCandidates) {
     try {
       const parsed = JSON.parse(candidate) as unknown
-      const extracted = extractEpisodeRating(parsed)
+      const extracted = extractGrade(parsed)
       if (extracted !== null) {
         return extracted
       }
@@ -222,13 +222,13 @@ const parseEpisodeRating = (content: string): number | null => {
     }
   }
 
-  const fallback = extractEpisodeRating(trimmed)
+  const fallback = extractGrade(trimmed)
   if (fallback !== null) return fallback
 
   return null
 }
 
-const recoverEpisodeRating = async (
+const recoverGrade = async (
   text: string,
   settings: Awaited<ReturnType<typeof getProviderSettings>>
 ): Promise<number | null> => {
@@ -336,25 +336,25 @@ export const describeImageWithVision = async (
   return description
 }
 
-export const gradeEpisode = async (
-  episode: EpisodeSuggestionContext,
+export const gradeNode = async (
+  node: Pick<NodeSuggestionContext, 'id' | 'type' | 'content'>,
   globalGoal: string
 ): Promise<number> => {
   const settings = await getProviderSettings()
   const goal = globalGoal.trim() || 'No global goal provided.'
 
   const prompt = [
-    'Evaluate this OMV research episode and assign a star rating from 1 to 5.',
+    'Evaluate this OMV research node and assign a star rating from 1 to 5.',
     'Use this scale:',
-    '- 5: Strong, clear, high-confidence episode that should guide future work.',
-    '- 4: Promising episode with good evidence and practical value.',
+    '- 5: Strong, clear, high-confidence node that should guide future work.',
+    '- 4: Promising node with good evidence and practical value.',
     '- 3: Neutral/mixed evidence; useful but not decisive.',
     '- 2: Weak evidence, unclear mechanism, or limited usefulness.',
-    '- 1: Poor, contradictory, or misleading episode to avoid.',
+    '- 1: Poor, contradictory, or misleading node to avoid.',
     `Global research goal: ${goal}`,
-    `Mechanism: ${episode.mechanism}`,
-    `Validation: ${episode.validation}`,
-    `Observation: ${episode.observation}`,
+    `Node ID: ${node.id}`,
+    `Node type: ${node.type}`,
+    `Node content: ${node.content}`,
     'Respond with ONLY JSON in this shape: {"rating": <1-5>}',
   ].join('\n')
 
@@ -391,12 +391,12 @@ export const gradeEpisode = async (
   const json = (await response.json()) as { text?: string }
   const text = typeof json.text === 'string' ? json.text : ''
 
-  const parsed = parseEpisodeRating(text)
+  const parsed = parseGrade(text)
   if (parsed !== null) {
     return parsed
   }
 
-  const recovered = await recoverEpisodeRating(text, settings).catch(() => null)
+  const recovered = await recoverGrade(text, settings).catch(() => null)
   if (recovered !== null) {
     return recovered
   }
@@ -499,39 +499,37 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
   })
 }
 
-const formatEpisodeGuidance = (episodes: EpisodeSuggestionContext[]): string => {
-  if (episodes.length === 0) {
-    return 'No rated Mechanism -> Validation -> Observation episodes were detected.'
+const formatNodeGuidance = (nodes: NodeSuggestionContext[]): string => {
+  if (nodes.length === 0) {
+    return 'No graded nodes were provided.'
   }
 
-  const sorted = [...episodes].sort((a, b) => b.rating - a.rating)
-  const prioritized = sorted.filter((episode) => episode.rating >= 4)
-  const downweighted = sorted.filter((episode) => episode.rating === 1)
+  const sorted = [...nodes].sort((a, b) => b.grade - a.grade)
+  const prioritized = sorted.filter((node) => node.grade >= 4)
+  const downweighted = sorted.filter((node) => node.grade === 1)
 
   const sections: string[] = []
 
   if (prioritized.length > 0) {
-    sections.push('High-priority episodes (rating 4-5):')
-    prioritized.slice(0, 5).forEach((episode, index) => {
+    sections.push('High-priority nodes (grade 4-5):')
+    prioritized.slice(0, 10).forEach((node, index) => {
       sections.push(
-        `${index + 1}. [${episode.id}]`,
-        `   Mechanism: ${episode.mechanism}`,
-        `   Validation: ${episode.validation}`,
-        `   Observation: ${episode.observation}`
+        `${index + 1}. [${node.id}]`,
+        `   Type: ${node.type}`,
+        `   Content: ${node.content}`
       )
     })
   } else {
-    sections.push('No episodes rated 4 or 5 yet.')
+    sections.push('No nodes graded 4 or 5 yet.')
   }
 
   if (downweighted.length > 0) {
-    sections.push('Episodes to avoid (rating 1):')
-    downweighted.slice(0, 5).forEach((episode, index) => {
+    sections.push('Nodes to avoid (grade 1):')
+    downweighted.slice(0, 10).forEach((node, index) => {
       sections.push(
-        `${index + 1}. [${episode.id}]`,
-        `   Mechanism: ${episode.mechanism}`,
-        `   Validation: ${episode.validation}`,
-        `   Observation: ${episode.observation}`
+        `${index + 1}. [${node.id}]`,
+        `   Type: ${node.type}`,
+        `   Content: ${node.content}`
       )
     })
   }
@@ -543,10 +541,10 @@ const buildPrompt = (
   ancestry: OMVNode[],
   globalGoal: string,
   expectedNextType: NodeType | null,
-  episodes: EpisodeSuggestionContext[]
+  gradedNodes: NodeSuggestionContext[]
 ): string => {
   const ancestryContext = formatAncestryForPrompt(ancestry)
-  const episodesContext = formatEpisodeGuidance(episodes)
+  const nodesContext = formatNodeGuidance(gradedNodes)
   const goal = globalGoal.trim() || 'No global goal provided.'
   const context = ancestryContext.trim() || 'No ancestry context provided.'
 
@@ -558,10 +556,10 @@ const buildPrompt = (
     expectedNextType
       ? `STRICT SEQUENCE RULE: The current node is ${ancestry[ancestry.length - 1]?.type}. Every suggested step MUST have type "${expectedNextType}".`
       : 'Follow the OMV sequence based on the current context.',
-    'Rated episode context:',
-    episodesContext,
-    'Prioritization rule: strongly prioritize suggestions aligned with episodes rated 4 or 5 stars.',
-    'Avoid or heavily downweight suggestions that resemble episodes rated 1 star unless absolutely necessary.',
+    'Graded node context:',
+    nodesContext,
+    'Prioritization rule: strongly prioritize suggestions aligned with nodes graded 4 or 5 stars.',
+    'Avoid or heavily downweight suggestions that resemble nodes graded 1 star unless absolutely necessary.',
     '',
     'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
     'Format: [{"type": "OBSERVATION", "text_content": "description"}, ...]',
@@ -579,11 +577,11 @@ export async function generateNextSteps(
   apiKey: string,
   model?: string | null,
   baseUrl?: string | null,
-  episodes: EpisodeSuggestionContext[] = []
+  gradedNodes: NodeSuggestionContext[] = []
 ): Promise<GeneratedStep[]> {
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
-  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType, episodes)
+  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
 
   try {
     let content: string

@@ -28,13 +28,9 @@ let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
 const GLOBAL_GOAL_STORAGE = 'stemflow:globalGoal'
-const EPISODE_RATINGS_STORAGE = 'stemflow:episodeRatings'
 const MANUAL_GROUPS_STORAGE = 'stemflow:manualGroups'
-const HIDDEN_EPISODES_STORAGE = 'stemflow:hiddenEpisodes'
 const SOURCE_HANDLE_IDS = ['s-middle', 's-top', 's-bottom'] as const
 const TARGET_HANDLE_IDS = ['t-middle', 't-top', 't-bottom'] as const
-
-type EpisodeRatings = Record<string, number>
 
 const saveManualGroups = (groups: ManualNodeGroup[]) => {
   if (typeof window === 'undefined') return
@@ -94,53 +90,6 @@ const loadGlobalGoal = (): string => {
     return window.localStorage.getItem(GLOBAL_GOAL_STORAGE) ?? ''
   } catch {
     return ''
-  }
-}
-
-const loadEpisodeRatings = (): EpisodeRatings => {
-  if (typeof window === 'undefined') return {}
-
-  try {
-    const raw = window.localStorage.getItem(EPISODE_RATINGS_STORAGE)
-    if (!raw) return {}
-
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-
-    const result: EpisodeRatings = {}
-    Object.entries(parsed).forEach(([episodeId, rating]) => {
-      if (typeof rating !== 'number' || Number.isNaN(rating)) return
-      result[episodeId] = Math.min(5, Math.max(1, Math.round(rating)))
-    })
-    return result
-  } catch {
-    return {}
-  }
-}
-
-const loadHiddenEpisodeIds = (): string[] => {
-  if (typeof window === 'undefined') return []
-
-  try {
-    const raw = window.localStorage.getItem(HIDDEN_EPISODES_STORAGE)
-    if (!raw) return []
-
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-
-    return Array.from(new Set(parsed.filter((value): value is string => typeof value === 'string')))
-  } catch {
-    return []
-  }
-}
-
-const saveHiddenEpisodeIds = (episodeIds: string[]) => {
-  if (typeof window === 'undefined') return
-
-  try {
-    window.localStorage.setItem(HIDDEN_EPISODES_STORAGE, JSON.stringify(episodeIds))
-  } catch {
-    // ignore
   }
 }
 
@@ -250,8 +199,6 @@ export interface StoreState {
   isGenerating: boolean
   aiError: string | null
   globalGoal: string
-  episodeRatings: EpisodeRatings
-  hiddenEpisodeIds: string[]
   isLoading: boolean
   loadFromDb: () => Promise<void>
   addNode: (node: OMVNode) => void
@@ -271,8 +218,7 @@ export interface StoreState {
   setIsGenerating: (value: boolean) => void
   setAiError: (error: string | null) => void
   setGlobalGoal: (goal: string) => void
-  setEpisodeRating: (episodeId: string, rating: number) => void
-  ungroupEpisode: (episodeId: string) => void
+  setNodeGrade: (nodeId: string, grade: number) => void
   createManualGroup: (nodeIds: string[]) => void
   deleteManualGroup: (groupId: string) => void
   renameManualGroup: (groupId: string, newLabel: string) => void
@@ -289,8 +235,6 @@ export const useStore = create<StoreState>((set) => ({
   isGenerating: false,
   aiError: null,
   globalGoal: loadGlobalGoal(),
-  episodeRatings: loadEpisodeRatings(),
-  hiddenEpisodeIds: loadHiddenEpisodeIds(),
   isLoading: false,
   loadFromDb: async () => {
     set({ isLoading: true })
@@ -485,34 +429,23 @@ export const useStore = create<StoreState>((set) => ({
     }
     set(() => ({ globalGoal: goal }))
   },
-  setEpisodeRating: (episodeId, rating) => {
-    const normalizedRating = Math.min(5, Math.max(1, Math.round(rating)))
+  setNodeGrade: (nodeId, grade) => {
+    const normalizedGrade = Math.min(5, Math.max(1, Math.round(grade)))
     set((state) => {
-      const episodeRatings = {
-        ...state.episodeRatings,
-        [episodeId]: normalizedRating,
-      }
+      const nodes = state.nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                grade: normalizedGrade,
+              },
+            }
+          : node
+      )
 
-      if (typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem(EPISODE_RATINGS_STORAGE, JSON.stringify(episodeRatings))
-        } catch {
-          // ignore
-        }
-      }
-
-      return { episodeRatings }
-    })
-  },
-  ungroupEpisode: (episodeId) => {
-    set((state) => {
-      if (state.hiddenEpisodeIds.includes(episodeId)) {
-        return state
-      }
-
-      const hiddenEpisodeIds = [...state.hiddenEpisodeIds, episodeId]
-      saveHiddenEpisodeIds(hiddenEpisodeIds)
-      return { hiddenEpisodeIds }
+      schedulePersist(nodes, state.edges)
+      return { nodes }
     })
   },
   createManualGroup: (nodeIds) => {

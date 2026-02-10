@@ -2,7 +2,6 @@ import { getIncomers } from 'reactflow'
 import type { Node as FlowNode } from 'reactflow'
 
 import type {
-  EpisodeGroupNodeData,
   ManualGroupNodeData,
   ManualNodeGroup,
   OMVEdge,
@@ -15,14 +14,12 @@ import type { Connection } from 'reactflow'
 const MAX_ANCESTRY_DEPTH = 50
 const DEFAULT_NODE_WIDTH = 320
 const DEFAULT_NODE_HEIGHT = 170
-const EPISODE_PADDING_X = 28
-const EPISODE_PADDING_TOP = 92
-const EPISODE_PADDING_BOTTOM = 28
+const GROUP_PADDING_X = 28
+const GROUP_PADDING_TOP = 92
+const GROUP_PADDING_BOTTOM = 28
 const TEXT_WRAP_WIDTH_CHARS = 40
 const TEXT_LINE_HEIGHT = 28
 const NODE_HEIGHT_BASELINE = 96
-
-export const DEFAULT_EPISODE_RATING = 3
 
 type NodeWithSize = OMVNode & {
   measured?: {
@@ -31,29 +28,18 @@ type NodeWithSize = OMVNode & {
   }
 }
 
-export type EpisodeBounds = {
+type GroupBounds = {
   x: number
   y: number
   width: number
   height: number
 }
 
-export interface ResearchEpisode {
+export interface NodeSuggestionContext {
   id: string
-  nodeIds: [string, string, string]
-  bounds: EpisodeBounds
-}
-
-export interface EpisodeSuggestionContext {
-  id: string
-  rating: number
-  mechanism: string
-  validation: string
-  observation: string
-}
-
-export type EpisodeGroupNode = FlowNode<EpisodeGroupNodeData> & {
-  type: 'EPISODE_GROUP'
+  type: OMVNode['type']
+  grade: number
+  content: string
 }
 
 export type ManualGroupNode = FlowNode<ManualGroupNodeData> & {
@@ -85,150 +71,44 @@ const getNodeHeight = (node: OMVNode): number => {
   return DEFAULT_NODE_HEIGHT
 }
 
-const createEpisodeId = (mechanismId: string, validationId: string, observationId: string): string =>
-  `episode-${mechanismId}-${validationId}-${observationId}`
-
-const clampEpisodeRating = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
-
-const readEpisodeRating = (episodeId: string, ratings: Record<string, number>): number => {
-  const value = ratings[episodeId]
-  return typeof value === 'number' ? clampEpisodeRating(value) : DEFAULT_EPISODE_RATING
-}
+const clampNodeGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
 
 const toPromptText = (node: OMVNode | undefined): string => {
   const text = node?.data?.text_content?.trim() ?? ''
   return text || 'No content provided.'
 }
 
-const createEpisodeBounds = (episodeNodes: OMVNode[]): EpisodeBounds => {
-  const minX = Math.min(...episodeNodes.map((node) => node.position?.x ?? 0))
-  const minY = Math.min(...episodeNodes.map((node) => node.position?.y ?? 0))
-  const maxX = Math.max(...episodeNodes.map((node) => (node.position?.x ?? 0) + getNodeWidth(node)))
-  const maxY = Math.max(...episodeNodes.map((node) => (node.position?.y ?? 0) + getNodeHeight(node)))
+const createGroupBounds = (groupNodes: OMVNode[]): GroupBounds => {
+  const minX = Math.min(...groupNodes.map((node) => node.position?.x ?? 0))
+  const minY = Math.min(...groupNodes.map((node) => node.position?.y ?? 0))
+  const maxX = Math.max(...groupNodes.map((node) => (node.position?.x ?? 0) + getNodeWidth(node)))
+  const maxY = Math.max(...groupNodes.map((node) => (node.position?.y ?? 0) + getNodeHeight(node)))
 
-  const width = Math.max(240, maxX - minX + EPISODE_PADDING_X * 2)
-  const height = Math.max(180, maxY - minY + EPISODE_PADDING_TOP + EPISODE_PADDING_BOTTOM)
+  const width = Math.max(240, maxX - minX + GROUP_PADDING_X * 2)
+  const height = Math.max(180, maxY - minY + GROUP_PADDING_TOP + GROUP_PADDING_BOTTOM)
 
   return {
-    x: minX - EPISODE_PADDING_X,
-    y: minY - EPISODE_PADDING_TOP,
+    x: minX - GROUP_PADDING_X,
+    y: minY - GROUP_PADDING_TOP,
     width,
     height,
   }
 }
 
-export const detectResearchEpisodes = (nodes: OMVNode[], edges: OMVEdge[]): ResearchEpisode[] => {
-  if (nodes.length === 0 || edges.length === 0) return []
-
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
-  const adjacency = new Map<string, Set<string>>()
-
-  edges.forEach((edge) => {
-    if (!edge.source || !edge.target) return
-
-    const sourceNeighbors = adjacency.get(edge.source) ?? new Set<string>()
-    sourceNeighbors.add(edge.target)
-    adjacency.set(edge.source, sourceNeighbors)
-
-    const targetNeighbors = adjacency.get(edge.target) ?? new Set<string>()
-    targetNeighbors.add(edge.source)
-    adjacency.set(edge.target, targetNeighbors)
-  })
-
-  const episodes: ResearchEpisode[] = []
-  const seen = new Set<string>()
-
-  nodes
-    .filter((node) => node.type === 'MECHANISM')
-    .forEach((mechanism) => {
-      const validationIds = Array.from(adjacency.get(mechanism.id) ?? []).filter((id) => {
-        const candidate = nodeMap.get(id)
-        return candidate?.type === 'VALIDATION'
-      })
-
-      validationIds.forEach((validationId) => {
-        const validation = nodeMap.get(validationId)
-        if (!validation) return
-
-        const observationIds = Array.from(adjacency.get(validationId) ?? []).filter((id) => {
-          const candidate = nodeMap.get(id)
-          return candidate?.type === 'OBSERVATION'
-        })
-
-        observationIds.forEach((observationId) => {
-          const observation = nodeMap.get(observationId)
-          if (!observation) return
-
-          const episodeId = createEpisodeId(mechanism.id, validation.id, observation.id)
-          if (seen.has(episodeId)) return
-
-          seen.add(episodeId)
-          episodes.push({
-            id: episodeId,
-            nodeIds: [mechanism.id, validation.id, observation.id],
-            bounds: createEpisodeBounds([mechanism, validation, observation]),
-          })
-        })
-      })
-    })
-
-  return episodes
-}
-
-export const buildEpisodeGroupNodes = (
-  nodes: OMVNode[],
-  edges: OMVEdge[],
-  ratings: Record<string, number>,
-  hiddenEpisodeIds: string[] = []
-): EpisodeGroupNode[] =>
-  detectResearchEpisodes(nodes, edges)
-    .filter((episode) => !hiddenEpisodeIds.includes(episode.id))
-    .map((episode) => ({
-    id: `episode-group-${episode.id}`,
-    type: 'EPISODE_GROUP',
-    position: {
-      x: episode.bounds.x,
-      y: episode.bounds.y,
-    },
-    data: {
-      episodeId: episode.id,
-      rating: readEpisodeRating(episode.id, ratings),
-      nodeIds: episode.nodeIds,
-    },
-    draggable: true,
-    selectable: true,
-    connectable: false,
-    deletable: true,
-    focusable: true,
-    zIndex: -1,
-    style: {
-      width: episode.bounds.width,
-      height: episode.bounds.height,
-    },
-    }))
-
-export const buildEpisodeSuggestionContext = (
-  nodes: OMVNode[],
-  edges: OMVEdge[],
-  ratings: Record<string, number>,
-  hiddenEpisodeIds: string[] = []
-): EpisodeSuggestionContext[] => {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]))
-
-  return detectResearchEpisodes(nodes, edges)
-    .filter((episode) => !hiddenEpisodeIds.includes(episode.id))
-    .map((episode) => {
-    const [mechanismId, validationId, observationId] = episode.nodeIds
-
-    return {
-      id: episode.id,
-      rating: readEpisodeRating(episode.id, ratings),
-      mechanism: toPromptText(nodeMap.get(mechanismId)),
-      validation: toPromptText(nodeMap.get(validationId)),
-      observation: toPromptText(nodeMap.get(observationId)),
+export const buildNodeSuggestionContext = (nodes: OMVNode[]): NodeSuggestionContext[] =>
+  nodes.flatMap((node) => {
+    const value = node.data?.grade
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return []
     }
-    })
-}
+
+    return [{
+      id: node.id,
+      type: node.type,
+      grade: clampNodeGrade(value),
+      content: toPromptText(node),
+    }]
+  })
 
 export const buildManualGroupNodes = (
   nodes: OMVNode[],
@@ -246,7 +126,7 @@ export const buildManualGroupNodes = (
 
       if (members.length < 2) return null
 
-      const bounds = createEpisodeBounds(members)
+      const bounds = createGroupBounds(members)
 
       return {
         id: `manual-group-${group.id}`,

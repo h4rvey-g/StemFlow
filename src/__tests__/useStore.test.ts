@@ -243,13 +243,23 @@ describe('useStore', () => {
     expect(useStore.getState().globalGoal).toBe('')
   })
 
-  it('stores hidden episode ids for ungrouped episodes', async () => {
+  it('sets per-node grades with clamping', async () => {
     const { useStore } = await createStore()
 
-    useStore.getState().ungroupEpisode('episode-a')
-    useStore.getState().ungroupEpisode('episode-a')
-    useStore.getState().ungroupEpisode('episode-b')
+    useStore.getState().addNode({
+      id: 'node-grade',
+      type: 'OBSERVATION',
+      data: { text_content: 'Needs evaluation' },
+      position: { x: 0, y: 0 },
+    })
 
-    expect(useStore.getState().hiddenEpisodeIds).toEqual(['episode-a', 'episode-b'])
+    useStore.getState().setNodeGrade('node-grade', 4)
+    expect(useStore.getState().nodes.find((node) => node.id === 'node-grade')?.data.grade).toBe(4)
+
+    useStore.getState().setNodeGrade('node-grade', 8)
+    expect(useStore.getState().nodes.find((node) => node.id === 'node-grade')?.data.grade).toBe(5)
+
+    useStore.getState().setNodeGrade('node-grade', -1)
+    expect(useStore.getState().nodes.find((node) => node.id === 'node-grade')?.data.grade).toBe(1)
   })
 })
