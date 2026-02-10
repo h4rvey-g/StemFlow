@@ -83,4 +83,22 @@ describe('GhostNode', () => {
     
     expect(mockDismissGhostNode).toHaveBeenCalledWith('ghost-1')
   })
+
+  it('renders bold and italic markdown emphasis in suggestion text', () => {
+    const props = {
+      ...defaultProps,
+      data: {
+        ...defaultProps.data,
+        text_content: 'Test **critical term** and *secondary term* in output.',
+      },
+    }
+
+    renderWithProvider(<GhostNode {...props} />)
+
+    const bold = screen.getByText('critical term')
+    const italic = screen.getByText('secondary term')
+
+    expect(bold.tagName).toBe('STRONG')
+    expect(italic.tagName).toBe('EM')
+  })
 })

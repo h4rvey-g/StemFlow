@@ -1,5 +1,7 @@
 import React, { memo, useCallback } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
+
+import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
 import { useStore } from '@/stores/useStore'
 import type { GhostNodeData } from '@/types/nodes'
 
@@ -42,8 +44,8 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
         </div>
       ) : null}
       
-      <div className="text-sm italic text-gray-600 mb-3 min-h-[3rem]">
-        {text_content}
+      <div className="mb-3 min-h-[3rem] whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
+        {renderMarkdownEmphasis(text_content)}
       </div>
 
       <div className="flex gap-2 mt-2">

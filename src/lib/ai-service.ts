@@ -590,6 +590,8 @@ const buildPrompt = (
     nodesContext,
     'Prioritization rule: strongly prioritize suggestions aligned with nodes graded 4 or 5 stars.',
     'Avoid or heavily downweight suggestions that resemble nodes graded 1 star unless absolutely necessary.',
+    'Writing style rule: in each "text_content", use markdown emphasis to highlight key scientific terms for readability.',
+    'Use **bold** for the most important terms and *italic* for secondary emphasis. Keep emphasis sparse and meaningful.',
     'Each suggestion must include a concise summary title as "summary_title" (3-8 words) that captures the main idea of "text_content".',
     '',
     'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',

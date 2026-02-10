@@ -7,6 +7,7 @@ import { useAutoResizingTextarea } from '@/hooks/useAutoResizingTextarea'
 import { describeImageWithVision } from '@/lib/ai-service'
 import { gradeNode } from '@/lib/ai-service'
 import { processFileInWorker } from '@/lib/file-processing-client'
+import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
 import {
   deleteFileAttachment,
   getFileAttachmentBlob,
@@ -385,7 +386,7 @@ export function ResearchNodeCard({
             className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700' : 'text-slate-400'}`}
             style={isTextCollapsed ? COLLAPSED_TEXT_STYLE : undefined}
           >
-            {hasText ? textContent : placeholder}
+            {hasText ? renderMarkdownEmphasis(textContent) : placeholder}
           </p>
           {shouldOfferTextToggle ? (
             <button

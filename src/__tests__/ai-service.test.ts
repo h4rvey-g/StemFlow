@@ -50,6 +50,13 @@ describe('ai service', () => {
       'sk-test'
     )
 
+    const firstCall = vi.mocked(generateText).mock.calls[0]
+    expect(firstCall).toBeTruthy()
+    if (firstCall) {
+      const options = firstCall[0] as { prompt?: string }
+      expect(options.prompt).toContain('Use **bold** for the most important terms and *italic* for secondary emphasis.')
+    }
+
     expect(result).toEqual([
       {
         type: 'MECHANISM',

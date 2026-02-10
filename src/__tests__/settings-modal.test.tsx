@@ -104,10 +104,33 @@ describe('SettingsModal', () => {
       provider: 'openai',
       openaiKey: 'sk-new-key',
     }))
-    
+
     await waitFor(() => {
-      expect(screen.getByText('Saved!')).toHaveClass('opacity-100')
+      expect(onClose).toHaveBeenCalled()
     })
+  })
+
+  it('shows persisted selected model even when not in fallback list', async () => {
+    ;(loadApiKeys as Mock).mockResolvedValue({
+      provider: 'openai',
+      openaiKey: 'sk-existing',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: 'gpt-4.1-mini',
+      anthropicModel: null,
+      geminiModel: null,
+    })
+
+    render(<SettingsModal isOpen={true} onClose={onClose} />)
+
+    await waitFor(() => {
+      expect(loadApiKeys).toHaveBeenCalled()
+    })
+
+    expect(screen.getByLabelText('Model')).toHaveValue('gpt-4.1-mini')
+    expect(screen.getByRole('option', { name: 'gpt-4.1-mini' })).toBeInTheDocument()
   })
 
   it('closes modal on close button click', async () => {

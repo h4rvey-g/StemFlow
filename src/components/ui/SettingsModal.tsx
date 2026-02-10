@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 import { saveApiKeys, loadApiKeys, type ApiKeyState, type ApiProvider } from '@/lib/api-keys'
 import { fetchProviderModels } from '@/lib/fetch-provider-models'
@@ -35,6 +36,15 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+
+    return () => {
+      setIsMounted(false);
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -90,10 +100,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     if (result.success) {
       setGlobalGoal(localGoal);
       setStatus('saved');
-      setTimeout(() => {
-        setStatus('idle');
-        onClose();
-      }, 2000);
+      onClose();
     } else {
       setStatus('error');
       setErrorMessage(result.error || 'Failed to save settings');
@@ -150,10 +157,15 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         ? GEMINI_MODELS
       : [];
 
-  const modelOptions =
+  const providerModelOptions =
     provider && fetchedModelOptions[provider] && fetchedModelOptions[provider]!.length > 0
       ? fetchedModelOptions[provider]!
-      : fallbackModelOptions;
+      : [...fallbackModelOptions];
+
+  const modelOptions =
+    currentModel && !providerModelOptions.includes(currentModel)
+      ? [currentModel, ...providerModelOptions]
+      : providerModelOptions;
 
   const handleFetchModels = async () => {
     if (!provider) {
@@ -205,9 +217,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     setIsFetchingModels(false);
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !isMounted) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
       data-testid="settings-modal"
@@ -361,6 +373,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
