@@ -51,9 +51,21 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'MECHANISM', text_content: 'Check dataset drift.' },
-      { type: 'MECHANISM', text_content: 'Hypothesize a causal driver.' },
-      { type: 'MECHANISM', text_content: 'Run a controlled experiment.' }
+      {
+        type: 'MECHANISM',
+        summary_title: 'Check dataset drift.',
+        text_content: 'Check dataset drift.',
+      },
+      {
+        type: 'MECHANISM',
+        summary_title: 'Hypothesize a causal driver.',
+        text_content: 'Hypothesize a causal driver.',
+      },
+      {
+        type: 'MECHANISM',
+        summary_title: 'Run a controlled experiment.',
+        text_content: 'Run a controlled experiment.',
+      }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
   })
@@ -79,9 +91,21 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'VALIDATION', text_content: 'Hypothesize signal leakage.' },
-      { type: 'VALIDATION', text_content: 'Test on a holdout split.' },
-      { type: 'VALIDATION', text_content: 'Collect a new sample.' }
+      {
+        type: 'VALIDATION',
+        summary_title: 'Hypothesize signal leakage.',
+        text_content: 'Hypothesize signal leakage.',
+      },
+      {
+        type: 'VALIDATION',
+        summary_title: 'Test on a holdout split.',
+        text_content: 'Test on a holdout split.',
+      },
+      {
+        type: 'VALIDATION',
+        summary_title: 'Collect a new sample.',
+        text_content: 'Collect a new sample.',
+      }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
   })
@@ -153,9 +177,21 @@ describe('ai service', () => {
     )
 
     expect(result).toEqual([
-      { type: 'OBSERVATION', text_content: 'Run A/B test.' },
-      { type: 'OBSERVATION', text_content: 'Explain the effect size.' },
-      { type: 'OBSERVATION', text_content: 'Collect baseline metrics.' }
+      {
+        type: 'OBSERVATION',
+        summary_title: 'Run A/B test.',
+        text_content: 'Run A/B test.',
+      },
+      {
+        type: 'OBSERVATION',
+        summary_title: 'Explain the effect size.',
+        text_content: 'Explain the effect size.',
+      },
+      {
+        type: 'OBSERVATION',
+        summary_title: 'Collect baseline metrics.',
+        text_content: 'Collect baseline metrics.',
+      }
     ])
     expect(generateText).toHaveBeenCalledTimes(1)
   })

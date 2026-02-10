@@ -77,6 +77,7 @@ export function useGenerate() {
         type: 'GHOST' as const,
         position: createRightwardSiblingPosition(parentNode.position, index),
         data: {
+          summary_title: step.summary_title,
           text_content: step.text_content,
           suggestedType: step.type,
           parentId: nodeId,

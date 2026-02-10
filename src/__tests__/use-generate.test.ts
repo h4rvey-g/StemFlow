@@ -61,9 +61,9 @@ describe('useGenerate', () => {
     vi.spyOn(graph, 'buildNodeSuggestionContext').mockReturnValue([])
 
     vi.spyOn(aiService, 'generateNextSteps').mockResolvedValue([
-      { type: 'MECHANISM', text_content: 'Suggested mechanism' },
-      { type: 'VALIDATION', text_content: 'Suggested validation' },
-      { type: 'OBSERVATION', text_content: 'Suggested observation' },
+      { type: 'MECHANISM', summary_title: 'Mechanism summary', text_content: 'Suggested mechanism' },
+      { type: 'VALIDATION', summary_title: 'Validation summary', text_content: 'Suggested validation' },
+      { type: 'OBSERVATION', summary_title: 'Observation summary', text_content: 'Suggested observation' },
     ])
 
     const { result } = renderHook(() => useGenerate())
@@ -90,12 +90,13 @@ describe('useGenerate', () => {
         expect.objectContaining({
           type: 'GHOST',
           position: { x: 480, y: 100 },
-          data: expect.objectContaining({
-            parentId: 'node-1',
-            suggestedType: 'MECHANISM',
-            text_content: 'Suggested mechanism',
+            data: expect.objectContaining({
+              parentId: 'node-1',
+              suggestedType: 'MECHANISM',
+              summary_title: 'Mechanism summary',
+              text_content: 'Suggested mechanism',
+            }),
           }),
-        }),
       ]),
       expect.any(Array)
     )

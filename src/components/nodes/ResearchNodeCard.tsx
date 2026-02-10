@@ -30,11 +30,11 @@ const FILE_ACCEPT = 'image/*,application/pdf,text/plain,.txt,.md,.json,.csv'
 const EMPTY_ATTACHMENTS: NodeFileAttachment[] = []
 const TEXT_CLAMP_WORD_THRESHOLD = 150
 const STAR_VALUES = [1, 2, 3, 4, 5] as const
-const AUXILIARY_HANDLE_STYLE: React.CSSProperties = {
-  width: 8,
-  height: 8,
-  background: '#94a3b8',
-  borderColor: '#64748b',
+const PRIMARY_HANDLE_STYLE: React.CSSProperties = {
+  width: 12,
+  height: 12,
+  background: '#0f172a',
+  border: '2px solid #ffffff',
 }
 
 const COLLAPSED_TEXT_STYLE: React.CSSProperties = {
@@ -120,6 +120,8 @@ export function ResearchNodeCard({
   const [isTextExpanded, setIsTextExpanded] = useState(false)
 
   const textContent = data?.text_content ?? ''
+  const summaryTitle = data?.summary_title?.trim() ?? ''
+  const hasSummaryTitle = summaryTitle.length > 0
   const hasText = textContent.trim().length > 0
   const shouldOfferTextToggle = countWords(textContent) > TEXT_CLAMP_WORD_THRESHOLD
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
@@ -356,26 +358,17 @@ export function ResearchNodeCard({
       <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 ${accentClassName}`} aria-hidden />
       <Handle
         type="target"
-        position={Position.Left}
-        isConnectable={false}
-        style={{ top: '50%', opacity: 0, pointerEvents: 'none' }}
-      />
-      <Handle
-        type="target"
-        id="t-top"
+        id="t-middle"
         position={Position.Left}
         isConnectable={isConnectable}
-        style={{ ...AUXILIARY_HANDLE_STYLE, top: '28%' }}
-      />
-      <Handle type="target" id="t-middle" position={Position.Left} isConnectable={isConnectable} />
-      <Handle
-        type="target"
-        id="t-bottom"
-        position={Position.Left}
-        isConnectable={isConnectable}
-        style={{ ...AUXILIARY_HANDLE_STYLE, top: '72%' }}
+        style={PRIMARY_HANDLE_STYLE}
       />
       <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</div>
+      {hasSummaryTitle ? (
+        <div className="mb-1 whitespace-pre-wrap break-words text-base font-semibold leading-6 text-slate-700">
+          {summaryTitle}
+        </div>
+      ) : null}
       {selected ? (
         <textarea
           ref={textareaRef}
@@ -548,24 +541,10 @@ export function ResearchNodeCard({
 
       <Handle
         type="source"
-        position={Position.Right}
-        isConnectable={false}
-        style={{ top: '50%', opacity: 0, pointerEvents: 'none' }}
-      />
-      <Handle
-        type="source"
-        id="s-top"
+        id="s-middle"
         position={Position.Right}
         isConnectable={isConnectable}
-        style={{ ...AUXILIARY_HANDLE_STYLE, top: '28%' }}
-      />
-      <Handle type="source" id="s-middle" position={Position.Right} isConnectable={isConnectable} />
-      <Handle
-        type="source"
-        id="s-bottom"
-        position={Position.Right}
-        isConnectable={isConnectable}
-        style={{ ...AUXILIARY_HANDLE_STYLE, top: '72%' }}
+        style={PRIMARY_HANDLE_STYLE}
       />
     </div>
   )

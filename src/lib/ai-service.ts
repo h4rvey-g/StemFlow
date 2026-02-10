@@ -12,6 +12,7 @@ import modelsSchema from '@/lib/models-schema.json'
 export interface GeneratedStep {
   type: NodeType
   text_content: string
+  summary_title?: string
 }
 
 const clampGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
@@ -426,6 +427,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNodeType = (value: unknown): value is NodeType =>
   value === 'OBSERVATION' || value === 'MECHANISM' || value === 'VALIDATION'
 
+const normalizeSummaryTitle = (value: unknown, textContent: string): string => {
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/\s+/g, ' ').trim()
+    if (cleaned) {
+      return cleaned.length > 80 ? `${cleaned.slice(0, 77).trimEnd()}...` : cleaned
+    }
+  }
+
+  const fallback = textContent.replace(/\s+/g, ' ').trim()
+  if (!fallback) return 'Untitled'
+  const words = fallback.split(' ')
+  const concise = words.slice(0, 8).join(' ')
+  return concise.length > 80 ? `${concise.slice(0, 77).trimEnd()}...` : concise
+}
+
 const getExpectedNextType = (currentType: NodeType): NodeType | null => {
   if (currentType === 'OBSERVATION') return 'MECHANISM'
   if (currentType === 'MECHANISM') return 'VALIDATION'
@@ -476,26 +492,40 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
       throw new Error('Failed to parse AI response')
     }
 
-    if (!('text_content' in item)) {
-      if ('text_' in item) {
-        (item as any).text_content = (item as any).text_
-      } else if ('text' in item) {
-        (item as any).text_content = (item as any).text
-      }
-    }
+    const type = item.type
+    const textContentCandidate =
+      typeof item.text_content === 'string'
+        ? item.text_content
+        : typeof item.text_ === 'string'
+          ? item.text_
+          : typeof item.text === 'string'
+            ? item.text
+            : null
 
-    const { type, text_content } = item
-    if (!isNodeType(type) || typeof text_content !== 'string') {
+    if (!isNodeType(type) || typeof textContentCandidate !== 'string') {
       console.error(`[AI Service] Item ${index} has invalid fields:`, {
         type,
         isValidType: isNodeType(type),
-        text_content,
-        isValidContent: typeof text_content === 'string'
+        text_content: textContentCandidate,
+        isValidContent: typeof textContentCandidate === 'string'
       })
       throw new Error('Failed to parse AI response')
     }
 
-    return { type, text_content }
+    const summaryTitleCandidate =
+      typeof item.summary_title === 'string'
+        ? item.summary_title
+        : typeof item.title === 'string'
+          ? item.title
+          : typeof item.summary === 'string'
+            ? item.summary
+            : null
+
+    return {
+      type,
+      text_content: textContentCandidate,
+      summary_title: normalizeSummaryTitle(summaryTitleCandidate, textContentCandidate),
+    }
   })
 }
 
@@ -560,13 +590,15 @@ const buildPrompt = (
     nodesContext,
     'Prioritization rule: strongly prioritize suggestions aligned with nodes graded 4 or 5 stars.',
     'Avoid or heavily downweight suggestions that resemble nodes graded 1 star unless absolutely necessary.',
+    'Each suggestion must include a concise summary title as "summary_title" (3-8 words) that captures the main idea of "text_content".',
     '',
     'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
-    'Format: [{"type": "OBSERVATION", "text_content": "description"}, ...]',
+    'Format: [{"type": "OBSERVATION", "summary_title": "short summary", "text_content": "description"}, ...]',
     'The "type" must be exactly one of: "OBSERVATION", "MECHANISM", or "VALIDATION".',
+    'The "summary_title" must be a short phrase, not a full paragraph.',
     '',
     'Example response:',
-    '[{"type": "OBSERVATION", "text_content": "Collect baseline metrics"}, {"type": "MECHANISM", "text_content": "Analyze correlation patterns"}]'
+    '[{"type": "OBSERVATION", "summary_title": "Baseline metrics", "text_content": "Collect baseline metrics across key cohorts."}, {"type": "MECHANISM", "summary_title": "Correlation analysis", "text_content": "Analyze correlation patterns between intervention and outcome."}]'
   ].join('\n')
 }
 

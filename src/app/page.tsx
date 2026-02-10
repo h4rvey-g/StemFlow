@@ -110,6 +110,41 @@ function Canvas() {
     loadFromDb()
   }, [loadFromDb])
 
+  useEffect(() => {
+    const isTextEditingTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false
+      const tag = target.tagName
+      return (
+        target.isContentEditable ||
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT'
+      )
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isSelectAllKey = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a'
+      if (!isSelectAllKey || isTextEditingTarget(event.target)) return
+
+      event.preventDefault()
+
+      if (nodes.length === 0) return
+
+      storeOnNodesChange(
+        nodes.map((node) => ({
+          id: node.id,
+          type: 'select' as const,
+          selected: true,
+        }))
+      )
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [nodes, storeOnNodesChange])
+
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
@@ -396,6 +431,7 @@ function Canvas() {
               onNodeMouseLeave={handleNodeMouseLeave}
               nodeTypes={nodeTypes}
               defaultEdgeOptions={defaultEdgeOptions}
+              connectionRadius={32}
               selectionOnDrag
               selectionKeyCode="Shift"
               multiSelectionKeyCode={['Meta', 'Control', 'Shift']}

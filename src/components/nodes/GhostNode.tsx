@@ -16,7 +16,7 @@ const typeLabels: Record<string, string> = {
 }
 
 export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>) => {
-  const { text_content, suggestedType, ghostId } = data
+  const { text_content, summary_title, suggestedType, ghostId } = data
   const acceptGhostNode = useStore((s) => s.acceptGhostNode)
   const dismissGhostNode = useStore((s) => s.dismissGhostNode)
   
@@ -35,6 +35,12 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
       <div className={`text-xs font-bold mb-1 ${colorClass}`}>
         {typeLabels[suggestedType]}
       </div>
+
+      {summary_title?.trim() ? (
+        <div className="mb-1 whitespace-pre-wrap break-words text-xs font-semibold text-slate-700">
+          {summary_title}
+        </div>
+      ) : null}
       
       <div className="text-sm italic text-gray-600 mb-3 min-h-[3rem]">
         {text_content}
