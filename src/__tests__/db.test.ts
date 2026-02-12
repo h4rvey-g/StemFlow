@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { db } from '@/lib/db'
+import { db, DEFAULT_PROJECT_ID } from '@/lib/db'
 
 describe('StemFlowDB indexed tables', () => {
   beforeEach(async () => {
@@ -19,7 +19,8 @@ describe('StemFlowDB indexed tables', () => {
       type: 'OBSERVATION' as const,
       data: { text_content: 'node-content' },
       position: { x: 10, y: 20 },
-      parentIds: ['parent-1']
+      parentIds: ['parent-1'],
+      projectId: DEFAULT_PROJECT_ID
     }
 
     await db.nodes.add(node)
@@ -33,7 +34,8 @@ describe('StemFlowDB indexed tables', () => {
       id: 'edge-1',
       source: 'node-1',
       target: 'node-2',
-      type: 'default'
+      type: 'default',
+      projectId: DEFAULT_PROJECT_ID
     }
 
     await db.edges.add(edge)
@@ -46,7 +48,8 @@ describe('StemFlowDB indexed tables', () => {
     const project = {
       id: 'project-1',
       name: 'Canvas Test',
-      created_at: new Date('2025-01-01T00:00:00Z')
+      created_at: new Date('2025-01-01T00:00:00Z'),
+      updated_at: new Date('2025-01-01T00:00:00Z')
     }
 
     await db.projects.add(project)

@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import { addEdge, applyEdgeChanges, applyNodeChanges } from 'reactflow'
 import type { Connection, EdgeChange, NodeChange } from 'reactflow'
 
-import type { DbNode } from '@/lib/db'
+import type { DbNode, DbEdge } from '@/lib/db'
 import { db } from '@/lib/db'
+import { useProjectStore } from '@/stores/useProjectStore'
 import { deleteAttachmentsForNode } from '@/lib/file-storage'
 import { formatNodesNeatly, resolveVerticalCollisions } from '@/lib/node-layout'
 import type {
@@ -30,25 +31,30 @@ const isTrackedNodeChange = (change: NodeChange): change is NodeChange & { id: s
 let persistDelayMs = 300
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
-const GLOBAL_GOAL_STORAGE = 'stemflow:globalGoal'
-const MANUAL_GROUPS_STORAGE = 'stemflow:manualGroups'
 const SOURCE_HANDLE_IDS = ['s-middle'] as const
 const TARGET_HANDLE_IDS = ['t-middle'] as const
 
-const saveManualGroups = (groups: ManualNodeGroup[]) => {
+const getActiveProjectId = (): string => {
+  return useProjectStore.getState().activeProjectId ?? 'default-project'
+}
+
+const goalKey = (projectId: string) => `stemflow:globalGoal:${projectId}`
+const groupsKey = (projectId: string) => `stemflow:manualGroups:${projectId}`
+
+const saveManualGroups = (groups: ManualNodeGroup[], projectId: string) => {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(MANUAL_GROUPS_STORAGE, JSON.stringify(groups))
+    window.localStorage.setItem(groupsKey(projectId), JSON.stringify(groups))
   } catch {
     // ignore
   }
 }
 
-const loadManualGroups = (): ManualNodeGroup[] => {
+const loadManualGroups = (projectId: string): ManualNodeGroup[] => {
   if (typeof window === 'undefined') return []
 
   try {
-    const raw = window.localStorage.getItem(MANUAL_GROUPS_STORAGE)
+    const raw = window.localStorage.getItem(groupsKey(projectId))
     if (!raw) return []
 
     const parsed: unknown = JSON.parse(raw)
@@ -97,10 +103,10 @@ const normalizeHandleId = (
   return handleId === TARGET_HANDLE_IDS[0] ? handleId : TARGET_HANDLE_IDS[0]
 }
 
-const loadGlobalGoal = (): string => {
+const loadGlobalGoal = (projectId: string): string => {
   if (typeof window === 'undefined') return ''
   try {
-    return window.localStorage.getItem(GLOBAL_GOAL_STORAGE) ?? ''
+    return window.localStorage.getItem(goalKey(projectId)) ?? ''
   } catch {
     return ''
   }
@@ -191,6 +197,8 @@ const withDistributedHandles = <T extends HandleAssignable>(
 }
 
 const schedulePersist = (nodes: OMVNode[], edges: OMVEdge[]) => {
+  const projectId = getActiveProjectId()
+
   const parentMap = new Map<string, Set<string>>()
   edges.forEach((edge) => {
     if (!edge.source || !edge.target) return
@@ -201,8 +209,15 @@ const schedulePersist = (nodes: OMVNode[], edges: OMVEdge[]) => {
 
   const dbNodes: DbNode[] = nodes.map((node) => ({
     ...node,
+    projectId,
     parentIds: Array.from(parentMap.get(node.id) ?? []),
   }))
+
+  const dbEdges: DbEdge[] = edges.map((edge) => ({
+    ...edge,
+    projectId,
+  }))
+
   if (persistTimeout) {
     clearTimeout(persistTimeout)
   }
@@ -210,10 +225,10 @@ const schedulePersist = (nodes: OMVNode[], edges: OMVEdge[]) => {
   persistTimeout = setTimeout(() => {
     void db
       .transaction('rw', db.nodes, db.edges, async () => {
-        await db.nodes.clear()
+        await db.nodes.where('projectId').equals(projectId).delete()
         await db.nodes.bulkAdd(dbNodes)
-        await db.edges.clear()
-        await db.edges.bulkAdd(edges)
+        await db.edges.where('projectId').equals(projectId).delete()
+        await db.edges.bulkAdd(dbEdges)
       })
       .catch((error: unknown) => {
         console.error('Failed to persist canvas state:', error)
@@ -267,19 +282,24 @@ export interface StoreState {
 export const useStore = create<StoreState>((set) => ({
   nodes: [],
   edges: [],
-  manualGroups: loadManualGroups(),
+  manualGroups: [],
   ghostNodes: [],
   ghostEdges: [],
   isGenerating: false,
   aiError: null,
-  globalGoal: loadGlobalGoal(),
+  globalGoal: '',
   isLoading: false,
   undoStack: [],
   loadFromDb: async () => {
-    set({ isLoading: true })
+    const projectId = getActiveProjectId()
+    set({
+      isLoading: true,
+      manualGroups: loadManualGroups(projectId),
+      globalGoal: loadGlobalGoal(projectId),
+    })
     const [dbNodes, dbEdges] = await Promise.all([
-      db.nodes.toArray(),
-      db.edges.toArray(),
+      db.nodes.where('projectId').equals(projectId).toArray(),
+      db.edges.where('projectId').equals(projectId).toArray(),
     ])
     const edges = dbEdges.map((edge) => withDistributedHandles(edge, dbNodes))
     set({ nodes: dbNodes, edges, isLoading: false })
@@ -582,7 +602,7 @@ export const useStore = create<StoreState>((set) => ({
   setGlobalGoal: (goal) => {
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem(GLOBAL_GOAL_STORAGE, goal)
+        window.localStorage.setItem(goalKey(getActiveProjectId()), goal)
       } catch {
         // ignore
       }
@@ -639,14 +659,14 @@ export const useStore = create<StoreState>((set) => ({
         },
       ]
 
-      saveManualGroups(manualGroups)
+      saveManualGroups(manualGroups, getActiveProjectId())
       return { manualGroups }
     })
   },
   deleteManualGroup: (groupId) => {
     set((state) => {
       const manualGroups = state.manualGroups.filter((g) => g.id !== groupId)
-      saveManualGroups(manualGroups)
+      saveManualGroups(manualGroups, getActiveProjectId())
       return { manualGroups }
     })
   },
@@ -655,7 +675,7 @@ export const useStore = create<StoreState>((set) => ({
       const manualGroups = state.manualGroups.map((g) =>
         g.id === groupId ? { ...g, label: newLabel } : g
       )
-      saveManualGroups(manualGroups)
+      saveManualGroups(manualGroups, getActiveProjectId())
       return { manualGroups }
     })
   },

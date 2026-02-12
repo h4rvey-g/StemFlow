@@ -4,6 +4,7 @@ import type { FileMetadata } from '@/types/nodes'
 export interface StoredAttachment {
   id: string
   nodeId: string
+  projectId: string
   blob: Blob
   name: string
   mimeType: string
@@ -14,13 +15,18 @@ export interface StoredAttachment {
 const createAttachmentId = (): string =>
   `file-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
-export const saveFileAttachment = async (nodeId: string, file: File): Promise<FileMetadata> => {
+export const saveFileAttachment = async (
+  projectId: string,
+  nodeId: string,
+  file: File,
+): Promise<FileMetadata> => {
   const id = createAttachmentId()
   const uploadedAt = Date.now()
 
   const record: StoredAttachment = {
     id,
     nodeId,
+    projectId,
     blob: file,
     name: file.name,
     mimeType: file.type || 'application/octet-stream',

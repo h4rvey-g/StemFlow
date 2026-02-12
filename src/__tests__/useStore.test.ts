@@ -7,8 +7,9 @@ const persistDelay = 10
 const createStore = async () => {
   vi.resetModules()
   const storeModule = await import('../stores/useStore')
+  const projectModule = await import('../stores/useProjectStore')
   const { db } = await import('../lib/db')
-  return { ...storeModule, db }
+  return { ...storeModule, useProjectStore: projectModule.useProjectStore, db }
 }
 
 const flushPromises = async () => {
@@ -85,26 +86,39 @@ describe('useStore', () => {
   })
 
   it('loads data from Dexie and persists changes', async () => {
-    const { useStore, db, setPersistDelay } = await createStore()
+    const { useStore, useProjectStore, db, setPersistDelay } = await createStore()
+
+    const testProjectId = 'test-project'
+    await db.projects.add({
+      id: testProjectId,
+      name: 'Test Project',
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+    useProjectStore.getState().setActiveProject(testProjectId)
 
     await db.nodes.add({
       id: 'node-1',
       type: 'OBSERVATION',
       data: { text_content: 'loaded' },
       position: { x: 12, y: 24 },
-      parentIds: []
+      parentIds: [],
+      projectId: testProjectId
     })
     await db.nodes.add({
       id: 'node-2',
       type: 'MECHANISM',
       data: { text_content: 'loaded-2' },
       position: { x: 30, y: 40 },
-      parentIds: []
+      parentIds: [],
+      projectId: testProjectId
     })
     await db.edges.add({
       id: 'edge-1',
       source: 'node-1',
-      target: 'node-2'
+      target: 'node-2',
+      type: 'default',
+      projectId: testProjectId
     })
 
     vi.useRealTimers()

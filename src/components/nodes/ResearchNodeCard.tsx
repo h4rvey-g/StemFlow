@@ -14,6 +14,7 @@ import {
   saveFileAttachment,
 } from '@/lib/file-storage'
 import { useStore } from '@/stores/useStore'
+import { useProjectStore } from '@/stores/useProjectStore'
 import type { NodeData, NodeFileAttachment } from '@/types/nodes'
 import { NodePopover } from '@/components/ui/NodePopover'
 
@@ -107,6 +108,7 @@ export function ResearchNodeCard({
   const updateNodeData = useStore((state) => state.updateNodeData)
   const setNodeGrade = useStore((state) => state.setNodeGrade)
   const globalGoal = useStore((state) => state.globalGoal)
+  const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const { generate, isGenerating } = useAiGeneration()
   const updateNodeInternals = useUpdateNodeInternals()
 
@@ -248,7 +250,8 @@ export function ResearchNodeCard({
 
     try {
       for (const file of files) {
-        const metadata = await saveFileAttachment(id, file)
+        if (!activeProjectId) throw new Error('No active project')
+        const metadata = await saveFileAttachment(activeProjectId, id, file)
         let currentAttachment: NodeFileAttachment = {
           ...metadata,
           processingStatus: 'processing',
@@ -299,7 +302,7 @@ export function ResearchNodeCard({
     } finally {
       setIsUploading(false)
     }
-  }, [id, textContent, upsertAttachment])
+  }, [id, textContent, upsertAttachment, activeProjectId])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? Array.from(event.target.files) : []

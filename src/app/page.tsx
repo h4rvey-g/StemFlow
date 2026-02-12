@@ -17,6 +17,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import { useStore } from '@/stores/useStore'
+import { useProjectStore } from '@/stores/useProjectStore'
 import type { OMVNode, NodeType } from '@/stores/useStore'
 import { Sidebar } from '@/components/Sidebar'
 import { ObservationNode } from '@/components/nodes/ObservationNode'
@@ -137,7 +138,6 @@ const AlignIcon = () => (
 
 function Canvas() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const hasLoadedRef = useRef(false)
   const { screenToFlowPosition, fitView, getNodes, getZoom, getViewport } = useReactFlow()
   
   const nodes = useStore((s) => s.nodes)
@@ -153,6 +153,11 @@ function Canvas() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
   
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const isProjectLoaded = useProjectStore((s) => s.isLoaded)
+  const projects = useProjectStore((s) => s.projects)
+  const activeProject = projects.find((p) => p.id === activeProjectId)
+
   const aiError = useStore((s) => s.aiError)
   const storeOnNodesChange = useStore((s) => s.onNodesChange)
   const onEdgesChange = useStore((s) => s.onEdgesChange)
@@ -166,6 +171,10 @@ function Canvas() {
   const createManualGroup = useStore((s) => s.createManualGroup)
   const deleteManualGroup = useStore((s) => s.deleteManualGroup)
   const undoLastAction = useStore((s) => s.undoLastAction)
+
+  useEffect(() => {
+    useProjectStore.getState().loadProjects()
+  }, [])
 
   useEffect(() => {
     if (selectedNodeIds.length >= 2) {
@@ -187,10 +196,9 @@ function Canvas() {
   }, [nodes])
 
   useEffect(() => {
-    if (hasLoadedRef.current) return
-    hasLoadedRef.current = true
+    if (!isProjectLoaded || !activeProjectId) return
     loadFromDb()
-  }, [loadFromDb])
+  }, [isProjectLoaded, activeProjectId, loadFromDb])
 
   useEffect(() => {
     const isTextEditingTarget = (target: EventTarget | null): boolean => {
@@ -693,7 +701,9 @@ function Canvas() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-sm shadow-sm">
             SF
           </div>
-          <h1 className="text-lg font-semibold text-slate-800">StemFlow</h1>
+          <h1 className="text-lg font-semibold text-slate-800">
+            {activeProject ? activeProject.name : 'StemFlow'}
+          </h1>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
             BETA
           </span>
