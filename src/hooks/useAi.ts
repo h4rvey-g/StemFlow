@@ -5,6 +5,7 @@ import { createRightwardPosition } from '@/lib/node-layout'
 import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
 import type { AiAction, AiError, AiMessage, AiProvider } from '@/lib/ai/types'
 import { AiError as AiErrorClass } from '@/lib/ai/types'
+import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
 import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
 import { useAiStore } from '@/stores/useAiStore'
 import { useStore } from '@/stores/useStore'
@@ -14,12 +15,14 @@ const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
 
-const actionInstruction: Record<AiAction, string> = {
-  summarize: 'Summarize the context into a concise observation.',
-  'suggest-mechanism': 'Suggest a plausible mechanism based on the context.',
-  critique: 'Critique the reasoning gaps or weaknesses in the context.',
-  expand: 'Expand the context with additional relevant details.',
-  questions: 'Generate clarifying questions based on the context.',
+const getActionInstruction = (action: AiAction): string => {
+  const promptSettings = loadPromptSettings()
+
+  if (action === 'summarize') return promptSettings.useAiActionSummarizeInstruction
+  if (action === 'suggest-mechanism') return promptSettings.useAiActionSuggestMechanismInstruction
+  if (action === 'critique') return promptSettings.useAiActionCritiqueInstruction
+  if (action === 'expand') return promptSettings.useAiActionExpandInstruction
+  return promptSettings.useAiActionQuestionsInstruction
 }
 
 const resolveProvider = (provider: string | null, keys: Awaited<ReturnType<typeof loadApiKeys>>): AiProvider => {
@@ -45,17 +48,22 @@ const toModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKe
 }
 
 const buildMessages = (context: string, action: AiAction, extraContext?: string): AiMessage[] => {
-  const instruction = actionInstruction[action]
+  const promptSettings = loadPromptSettings()
+  const instruction = getActionInstruction(action)
   const userContent = [context, extraContext?.trim()].filter(Boolean).join('\n\n')
+  const userMessage = interpolatePromptTemplate(promptSettings.useAiUserMessageTemplate, {
+    instruction,
+    context: userContent,
+  }).trim()
 
   return [
     {
       role: 'system',
-      content: 'You are assisting with scientific research using the OMV framework.',
+      content: promptSettings.useAiSystemPrompt,
     },
     {
       role: 'user',
-      content: `${instruction}\n\n${userContent}`.trim(),
+      content: userMessage,
     },
   ]
 }

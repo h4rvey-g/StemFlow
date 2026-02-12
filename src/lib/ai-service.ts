@@ -8,6 +8,11 @@ import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
 import type { NodeType, OMVNode } from '@/types/nodes'
 import modelsSchema from '@/lib/models-schema.json'
+import {
+  interpolatePromptTemplate,
+  loadPromptSettings,
+  type PromptSettings,
+} from '@/lib/prompt-settings'
 
 export interface GeneratedStep {
   type: NodeType
@@ -52,9 +57,6 @@ const RATING_LETTER_GRADES: Record<string, number> = {
 const RATING_KEYS = ['rating', 'score', 'stars', 'star', 'grade'] as const
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
-
-const VISION_SYSTEM_PROMPT =
-  'You are a scientific research assistant. Describe uploaded images clearly and concisely for experiment documentation. Focus on observable structures, labels, axes, and notable patterns. Avoid speculation.'
 
 const inferProvider = (state: Awaited<ReturnType<typeof loadApiKeys>>): AiProvider | null => {
   if (state.provider) return state.provider
@@ -233,6 +235,8 @@ const recoverGrade = async (
   text: string,
   settings: Awaited<ReturnType<typeof getProviderSettings>>
 ): Promise<number | null> => {
+  const promptSettings = loadPromptSettings()
+
   const response = await fetch(`/api/ai/${settings.provider}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -243,12 +247,13 @@ const recoverGrade = async (
       messages: [
         {
           role: 'system',
-          content:
-            'Extract a 1-5 integer rating from the provided text. Return exactly one integer digit from 1 to 5.',
+          content: promptSettings.ratingExtractionSystemPrompt,
         },
         {
           role: 'user',
-          content: `Text:\n${text}`,
+          content: interpolatePromptTemplate(promptSettings.ratingExtractionUserPromptTemplate, {
+            text,
+          }),
         },
       ],
       stream: false,
@@ -290,15 +295,18 @@ export const describeImageWithVision = async (
   contextText?: string
 ): Promise<string> => {
   const settings = await getProviderSettings()
+  const promptSettings = loadPromptSettings()
 
   const messageText = contextText?.trim()
-    ? `Provide a concise description of this image for the following node context: ${contextText.trim()}`
-    : 'Provide a concise description of this image for a scientific research node.'
+    ? interpolatePromptTemplate(promptSettings.visionUserPromptWithContextTemplate, {
+        context: contextText.trim(),
+      })
+    : promptSettings.visionUserPromptWithoutContext
 
   const messages: AiMessage[] = [
     {
       role: 'system',
-      content: VISION_SYSTEM_PROMPT,
+      content: promptSettings.visionSystemPrompt,
     },
     {
       role: 'user',
@@ -342,28 +350,20 @@ export const gradeNode = async (
   globalGoal: string
 ): Promise<number> => {
   const settings = await getProviderSettings()
-  const goal = globalGoal.trim() || 'No global goal provided.'
+  const promptSettings = loadPromptSettings()
+  const goal = globalGoal.trim() || promptSettings.gradeGlobalGoalFallback
 
-  const prompt = [
-    'Evaluate this OMV research node and assign a star rating from 1 to 5.',
-    'Use this scale:',
-    '- 5: Strong, clear, high-confidence node that should guide future work.',
-    '- 4: Promising node with good evidence and practical value.',
-    '- 3: Neutral/mixed evidence; useful but not decisive.',
-    '- 2: Weak evidence, unclear mechanism, or limited usefulness.',
-    '- 1: Poor, contradictory, or misleading node to avoid.',
-    `Global research goal: ${goal}`,
-    `Node ID: ${node.id}`,
-    `Node type: ${node.type}`,
-    `Node content: ${node.content}`,
-    'Respond with ONLY JSON in this shape: {"rating": <1-5>}',
-  ].join('\n')
+  const prompt = interpolatePromptTemplate(promptSettings.gradeUserPromptTemplate, {
+    goal,
+    nodeId: node.id,
+    nodeType: node.type,
+    nodeContent: node.content,
+  })
 
   const messages: AiMessage[] = [
     {
       role: 'system',
-      content:
-        'You are a strict scientific reviewer. Output must be valid JSON with a single integer rating from 1 to 5.',
+      content: promptSettings.gradeSystemPrompt,
     },
     {
       role: 'user',
@@ -529,9 +529,12 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
   })
 }
 
-const formatNodeGuidance = (nodes: NodeSuggestionContext[]): string => {
+const formatNodeGuidance = (
+  nodes: NodeSuggestionContext[],
+  promptSettings: PromptSettings
+): string => {
   if (nodes.length === 0) {
-    return 'No graded nodes were provided.'
+    return promptSettings.nextStepsNoGradedNodesText
   }
 
   const sorted = [...nodes].sort((a, b) => b.grade - a.grade)
@@ -541,25 +544,25 @@ const formatNodeGuidance = (nodes: NodeSuggestionContext[]): string => {
   const sections: string[] = []
 
   if (prioritized.length > 0) {
-    sections.push('High-priority nodes (grade 4-5):')
+    sections.push(promptSettings.nodeGuidanceHighPriorityHeading)
     prioritized.slice(0, 10).forEach((node, index) => {
       sections.push(
         `${index + 1}. [${node.id}]`,
-        `   Type: ${node.type}`,
-        `   Content: ${node.content}`
+        `   ${promptSettings.nodeGuidanceTypeLabel}: ${node.type}`,
+        `   ${promptSettings.nodeGuidanceContentLabel}: ${node.content}`
       )
     })
   } else {
-    sections.push('No nodes graded 4 or 5 yet.')
+    sections.push(promptSettings.nodeGuidanceNoHighPriorityText)
   }
 
   if (downweighted.length > 0) {
-    sections.push('Nodes to avoid (grade 1):')
+    sections.push(promptSettings.nodeGuidanceAvoidHeading)
     downweighted.slice(0, 10).forEach((node, index) => {
       sections.push(
         `${index + 1}. [${node.id}]`,
-        `   Type: ${node.type}`,
-        `   Content: ${node.content}`
+        `   ${promptSettings.nodeGuidanceTypeLabel}: ${node.type}`,
+        `   ${promptSettings.nodeGuidanceContentLabel}: ${node.content}`
       )
     })
   }
@@ -573,35 +576,21 @@ const buildPrompt = (
   expectedNextType: NodeType | null,
   gradedNodes: NodeSuggestionContext[]
 ): string => {
+  const promptSettings = loadPromptSettings()
   const ancestryContext = formatAncestryForPrompt(ancestry)
-  const nodesContext = formatNodeGuidance(gradedNodes)
-  const goal = globalGoal.trim() || 'No global goal provided.'
-  const context = ancestryContext.trim() || 'No ancestry context provided.'
+  const nodesContext = formatNodeGuidance(gradedNodes, promptSettings)
+  const goal = globalGoal.trim() || promptSettings.nextStepsGlobalGoalFallback
+  const context = ancestryContext.trim() || promptSettings.nextStepsAncestryContextFallback
+  const currentType = ancestry[ancestry.length - 1]?.type ?? 'UNKNOWN'
+  const expectedType = expectedNextType ?? 'UNKNOWN'
 
-  return [
-    'You are assisting with scientific research using the Observation-Mechanism-Validation (OMV) framework.',
-    `Global research goal:\n${goal}`,
-    `Ancestry context:\n${context}`,
-    'Suggest 1 to 3 next steps in the OMV framework.',
-    expectedNextType
-      ? `STRICT SEQUENCE RULE: The current node is ${ancestry[ancestry.length - 1]?.type}. Every suggested step MUST have type "${expectedNextType}".`
-      : 'Follow the OMV sequence based on the current context.',
-    'Graded node context:',
+  return interpolatePromptTemplate(promptSettings.nextStepsPromptTemplate, {
+    goal,
+    context,
+    currentType,
+    expectedType,
     nodesContext,
-    'Prioritization rule: strongly prioritize suggestions aligned with nodes graded 4 or 5 stars.',
-    'Avoid or heavily downweight suggestions that resemble nodes graded 1 star unless absolutely necessary.',
-    'Writing style rule: in each "text_content", use markdown emphasis to highlight key scientific terms for readability.',
-    'Use **bold** for the most important terms and *italic* for secondary emphasis. Keep emphasis sparse and meaningful.',
-    'Each suggestion must include a concise summary title as "summary_title" (3-8 words) that captures the main idea of "text_content".',
-    '',
-    'CRITICAL: You must respond with ONLY a valid JSON array. No explanations, no markdown, no additional text.',
-    'Format: [{"type": "OBSERVATION", "summary_title": "short summary", "text_content": "description"}, ...]',
-    'The "type" must be exactly one of: "OBSERVATION", "MECHANISM", or "VALIDATION".',
-    'The "summary_title" must be a short phrase, not a full paragraph.',
-    '',
-    'Example response:',
-    '[{"type": "OBSERVATION", "summary_title": "Baseline metrics", "text_content": "Collect baseline metrics across key cohorts."}, {"type": "MECHANISM", "summary_title": "Correlation analysis", "text_content": "Analyze correlation patterns between intervention and outcome."}]'
-  ].join('\n')
+  })
 }
 
 export async function generateNextSteps(

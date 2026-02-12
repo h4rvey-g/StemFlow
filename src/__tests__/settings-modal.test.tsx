@@ -4,17 +4,36 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest'
 import { SettingsModal } from '../components/ui/SettingsModal'
 import { saveApiKeys, loadApiKeys } from '../lib/api-keys'
+import {
+  DEFAULT_PROMPT_SETTINGS,
+  loadPromptSettings,
+  savePromptSettings,
+} from '../lib/prompt-settings'
 
 vi.mock('../lib/api-keys', () => ({
   saveApiKeys: vi.fn(),
   loadApiKeys: vi.fn(),
 }))
 
+vi.mock('../lib/prompt-settings', async () => {
+  const actual = await vi.importActual<typeof import('../lib/prompt-settings')>(
+    '../lib/prompt-settings'
+  )
+
+  return {
+    ...actual,
+    loadPromptSettings: vi.fn(() => ({ ...actual.DEFAULT_PROMPT_SETTINGS })),
+    savePromptSettings: vi.fn(() => ({ success: true })),
+  }
+})
+
 describe('SettingsModal', () => {
   const onClose = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
+    ;(loadPromptSettings as Mock).mockReturnValue({ ...DEFAULT_PROMPT_SETTINGS })
+    ;(savePromptSettings as Mock).mockReturnValue({ success: true })
     ;(loadApiKeys as Mock).mockResolvedValue({
       provider: 'openai',
       openaiKey: null,
@@ -97,7 +116,7 @@ describe('SettingsModal', () => {
     await userEvent.clear(input)
     await userEvent.type(input, 'sk-new-key')
 
-    const saveBtn = screen.getByText('Save Changes')
+    const saveBtn = screen.getByText('Save Model Settings')
     await userEvent.click(saveBtn)
 
     expect(saveApiKeys).toHaveBeenCalledWith(expect.objectContaining({
@@ -140,5 +159,25 @@ describe('SettingsModal', () => {
     const closeBtn = screen.getByText('✕')
     await userEvent.click(closeBtn)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('saves prompt settings from prompt tab', async () => {
+    render(<SettingsModal isOpen={true} onClose={onClose} />)
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Prompt Settings' }))
+
+    const nodeGenerationPrompt = screen.getByLabelText('Node Generation Prompt')
+    await userEvent.clear(nodeGenerationPrompt)
+    await userEvent.type(nodeGenerationPrompt, 'Custom node generation prompt')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save Prompt Settings' }))
+
+    expect(onClose).toHaveBeenCalled()
+    expect(savePromptSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStepsPromptTemplate: 'Custom node generation prompt',
+      })
+    )
   })
 })

@@ -54,7 +54,8 @@ describe('ai service', () => {
     expect(firstCall).toBeTruthy()
     if (firstCall) {
       const options = firstCall[0] as { prompt?: string }
-      expect(options.prompt).toContain('Use **bold** for the most important terms and *italic* for secondary emphasis.')
+      expect(options.prompt).toContain('# Role: OMV Scientific Research Architect')
+      expect(options.prompt).toContain('Quantity: Provide at least 3 suggestions per response.')
     }
 
     expect(result).toEqual([

@@ -5,6 +5,12 @@ import { createPortal } from 'react-dom'
 
 import { saveApiKeys, loadApiKeys, type ApiKeyState, type ApiProvider } from '@/lib/api-keys'
 import { fetchProviderModels } from '@/lib/fetch-provider-models'
+import {
+  DEFAULT_PROMPT_SETTINGS,
+  loadPromptSettings,
+  savePromptSettings,
+  type PromptSettings,
+} from '@/lib/prompt-settings'
 import { useStore } from '@/stores/useStore'
 
 interface SettingsModalProps {
@@ -15,8 +21,10 @@ interface SettingsModalProps {
 const OPENAI_MODELS = ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'] as const
 const ANTHROPIC_MODELS = ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'] as const
 const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-3-pro-preview'] as const
+type SettingsTab = 'model' | 'prompt'
 
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('model');
   const [provider, setProvider] = useState<ApiProvider | null>(null);
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
@@ -37,6 +45,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [promptSettings, setPromptSettings] = useState<PromptSettings>(DEFAULT_PROMPT_SETTINGS);
 
   useEffect(() => {
     setIsMounted(true);
@@ -49,9 +58,11 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
+      setActiveTab('model');
       setLocalGoal(globalGoal);
       setFetchedModelOptions({});
       setModelFetchMessage('');
+      setPromptSettings(loadPromptSettings());
       loadApiKeys().then((keys) => {
         if (keys.provider) setProvider(keys.provider);
         if (keys.openaiKey) setOpenaiKey(keys.openaiKey);
@@ -67,7 +78,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     }
   }, [isOpen, globalGoal]);
 
-  const handleSave = async () => {
+  const handleSaveModelSettings = async () => {
     setStatus('idle');
     setErrorMessage('');
 
@@ -105,6 +116,32 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       setStatus('error');
       setErrorMessage(result.error || 'Failed to save settings');
     }
+  };
+
+  const handleSavePromptSettings = () => {
+    setStatus('idle');
+    setErrorMessage('');
+
+    const result = savePromptSettings(promptSettings);
+    if (result.success) {
+      setStatus('saved');
+      onClose();
+      return;
+    }
+
+    setStatus('error');
+    setErrorMessage(result.error || 'Failed to save prompt settings');
+  };
+
+  const handleNodeGenerationPromptChange = (value: string) => {
+    setPromptSettings((prev) => ({ ...prev, nextStepsPromptTemplate: value }));
+  };
+
+  const handleResetPromptDefaults = () => {
+    setPromptSettings((prev) => ({
+      ...prev,
+      nextStepsPromptTemplate: DEFAULT_PROMPT_SETTINGS.nextStepsPromptTemplate,
+    }));
   };
 
   const currentKey =
@@ -224,7 +261,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
       data-testid="settings-modal"
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
+      <div className="w-full max-w-4xl rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
           <button
@@ -241,113 +278,172 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
           </div>
         ) : (
           <div className="space-y-4">
-            <div>
-              <label htmlFor="settings-provider" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                AI Provider
-              </label>
-              <select
-                id="settings-provider"
-                value={provider ?? ''}
-                onChange={(e) => setProvider(e.target.value ? (e.target.value as ApiProvider) : null)}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1 dark:bg-gray-700/60">
+              <button
+                type="button"
+                onClick={() => setActiveTab('model')}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'model'
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-white'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                }`}
               >
-                <option value="">Select provider...</option>
-                <option value="openai">OpenAI</option>
-                <option value="openai-compatible">OpenAI-Compatible</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="gemini">Gemini</option>
-              </select>
+                Model Settings
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('prompt')}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'prompt'
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-white'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                }`}
+              >
+                Prompt Settings
+              </button>
             </div>
 
-            <div>
-              <label htmlFor="settings-api-key" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                API Key for {provider === 'openai' ? 'OpenAI' : provider === 'openai-compatible' ? 'OpenAI-Compatible' : provider === 'anthropic' ? 'Anthropic' : provider === 'gemini' ? 'Gemini' : 'Provider'}
-              </label>
-              <div className="relative">
-                <input
-                  id="settings-api-key"
-                  type={showKey ? 'text' : 'password'}
-                  value={currentKey}
-                  onChange={(e) => setCurrentKey(e.target.value)}
-                  placeholder={`Enter ${provider === 'anthropic' ? 'sk-ant-...' : provider === 'gemini' ? 'AIza...' : 'sk-...'}`}
-                  disabled={!provider}
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700"
-                >
-                  {showKey ? 'Hide' : 'Show'}
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Keys are stored locally and encrypted.
-              </p>
-            </div>
+            {activeTab === 'model' ? (
+              <>
+                <div>
+                  <label htmlFor="settings-provider" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    AI Provider
+                  </label>
+                  <select
+                    id="settings-provider"
+                    value={provider ?? ''}
+                    onChange={(e) => setProvider(e.target.value ? (e.target.value as ApiProvider) : null)}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Select provider...</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="openai-compatible">OpenAI-Compatible</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
+                </div>
 
-            {provider === 'openai-compatible' ? (
-              <div>
-                <label htmlFor="settings-base-url" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Custom Base URL
-                </label>
-                <input
-                  id="settings-base-url"
-                  type="url"
-                  value={currentBaseUrl}
-                  onChange={(e) => setCurrentBaseUrl(e.target.value)}
-                  placeholder="https://api.example.com/v1"
-                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Used for OpenAI-compatible endpoints.
-                </p>
-              </div>
-            ) : null}
+                <div>
+                  <label htmlFor="settings-api-key" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    API Key for {provider === 'openai' ? 'OpenAI' : provider === 'openai-compatible' ? 'OpenAI-Compatible' : provider === 'anthropic' ? 'Anthropic' : provider === 'gemini' ? 'Gemini' : 'Provider'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="settings-api-key"
+                      type={showKey ? 'text' : 'password'}
+                      value={currentKey}
+                      onChange={(e) => setCurrentKey(e.target.value)}
+                      placeholder={`Enter ${provider === 'anthropic' ? 'sk-ant-...' : provider === 'gemini' ? 'AIza...' : 'sk-...'}`}
+                      disabled={!provider}
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700"
+                    >
+                      {showKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Keys are stored locally and encrypted.
+                  </p>
+                </div>
 
-            <div>
-              <label htmlFor="settings-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Model
-              </label>
-              <select
-                id="settings-model"
-                value={currentModel}
-                onChange={(e) => setCurrentModel(e.target.value)}
-                disabled={!provider}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                {modelOptions.map((modelOption) => (
-                  <option key={modelOption} value={modelOption}>
-                    {modelOption}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleFetchModels}
-                  disabled={!provider || !currentKey || isFetchingModels || provider === 'gemini'}
-                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  {isFetchingModels ? 'Fetching...' : 'Fetch Models'}
-                </button>
-                {modelFetchMessage ? (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{modelFetchMessage}</span>
+                {provider === 'openai-compatible' ? (
+                  <div>
+                    <label htmlFor="settings-base-url" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Custom Base URL
+                    </label>
+                    <input
+                      id="settings-base-url"
+                      type="url"
+                      value={currentBaseUrl}
+                      onChange={(e) => setCurrentBaseUrl(e.target.value)}
+                      placeholder="https://api.example.com/v1"
+                      className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Used for OpenAI-compatible endpoints.
+                    </p>
+                  </div>
                 ) : null}
-              </div>
-            </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Research Goal (Optional)
-              </label>
-              <textarea
-                value={localGoal}
-                onChange={(e) => setLocalGoal(e.target.value)}
-                placeholder="Describe your overarching research question..."
-                className="h-24 w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
+                <div>
+                  <label htmlFor="settings-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Model
+                  </label>
+                  <select
+                    id="settings-model"
+                    value={currentModel}
+                    onChange={(e) => setCurrentModel(e.target.value)}
+                    disabled={!provider}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    {modelOptions.map((modelOption) => (
+                      <option key={modelOption} value={modelOption}>
+                        {modelOption}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFetchModels}
+                      disabled={!provider || !currentKey || isFetchingModels || provider === 'gemini'}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                      {isFetchingModels ? 'Fetching...' : 'Fetch Models'}
+                    </button>
+                    {modelFetchMessage ? (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{modelFetchMessage}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Research Goal (Optional)
+                  </label>
+                  <textarea
+                    value={localGoal}
+                    onChange={(e) => setLocalGoal(e.target.value)}
+                    placeholder="Describe your overarching research question..."
+                    className="h-24 w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-600 dark:text-gray-300">
+                    Only node generation prompt is editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleResetPromptDefaults}
+                    className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  >
+                    Reset Default
+                  </button>
+                </div>
+                <div>
+                  <label htmlFor="prompt-next-steps" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Node Generation Prompt
+                  </label>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    Prompt template used to generate the next 1-3 OMV nodes.
+                  </p>
+                  <textarea
+                    id="prompt-next-steps"
+                    rows={14}
+                    value={promptSettings.nextStepsPromptTemplate}
+                    onChange={(e) => handleNodeGenerationPromptChange(e.target.value)}
+                    className="w-full resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <span className={`text-sm text-green-600 transition-opacity ${status === 'saved' ? 'opacity-100' : 'opacity-0'}`}>
@@ -363,11 +459,15 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 Cancel
               </button>
               <button
-                onClick={handleSave}
-                disabled={!provider || !currentKey || (provider === 'openai-compatible' && !openaiBaseUrl.trim())}
+                onClick={activeTab === 'model' ? handleSaveModelSettings : handleSavePromptSettings}
+                disabled={
+                  activeTab === 'model'
+                    ? !provider || !currentKey || (provider === 'openai-compatible' && !openaiBaseUrl.trim())
+                    : false
+                }
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Save Changes
+                {activeTab === 'model' ? 'Save Model Settings' : 'Save Prompt Settings'}
               </button>
             </div>
           </div>
