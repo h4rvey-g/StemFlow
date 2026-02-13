@@ -549,6 +549,7 @@ export const useStore = create<StoreState>((set) => ({
         data: {
           text_content: ghostNode.data.text_content,
           summary_title: ghostNode.data.summary_title,
+          citations: ghostNode.data.citations,
         },
         position: ghostNode.position,
       }

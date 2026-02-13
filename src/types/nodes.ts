@@ -2,6 +2,14 @@ import type { Edge, Node } from 'reactflow'
 
 export type NodeType = 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'
 
+export interface Citation {
+  index: number
+  title: string
+  url: string
+  snippet?: string
+  publishedDate?: string
+}
+
 export interface FileMetadata {
   id: string
   name: string
@@ -22,6 +30,7 @@ export interface NodeData {
   summary_title?: string
   grade?: number | null
   attachments?: NodeFileAttachment[]
+  citations?: Citation[]
   // Legacy fields kept for backward compatibility with older persisted data.
   fileMetadata?: FileMetadata | null
   fileProcessingStatus?: 'processing' | 'ready' | 'error' | null
@@ -49,6 +58,7 @@ export interface GhostNodeData {
   suggestedType: NodeType
   parentId: string
   ghostId: string
+  citations?: Citation[]
 }
 
 export type GhostNode = Node<GhostNodeData> & {

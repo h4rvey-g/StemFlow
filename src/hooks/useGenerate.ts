@@ -69,6 +69,14 @@ export function useGenerate() {
         gradedNodes
       )
 
+      console.log('[useGenerate] Steps received:', steps.length)
+      steps.forEach((step, i) => {
+        console.log(`[useGenerate] Step ${i}: type=${step.type}, citations=${step.citations?.length ?? 0}`)
+        if (step.citations?.length) {
+          console.log(`[useGenerate] Step ${i} citations:`, JSON.stringify(step.citations))
+        }
+      })
+
       const ghostNodes: GhostNode[] = steps.map((step, index) => {
         const ghostId = `ghost-${Date.now()}-${index}`
 
@@ -82,6 +90,7 @@ export function useGenerate() {
           suggestedType: step.type,
           parentId: nodeId,
           ghostId,
+          citations: step.citations,
         },
       }
       })

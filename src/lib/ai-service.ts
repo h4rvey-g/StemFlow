@@ -1,12 +1,8 @@
-import { generateText } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { createOpenAI } from '@ai-sdk/openai'
-
 import { loadApiKeys } from '@/lib/api-keys'
 import { formatAncestryForPrompt } from '@/lib/graph'
 import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
-import type { NodeType, OMVNode } from '@/types/nodes'
+import type { NodeType, OMVNode, Citation } from '@/types/nodes'
 import modelsSchema from '@/lib/models-schema.json'
 import {
   interpolatePromptTemplate,
@@ -17,12 +13,26 @@ import {
   useStore,
   formatExperimentalConditionsForPrompt,
 } from '@/stores/useStore'
+import { searchExa } from '@/lib/exa-search'
 
 export interface GeneratedStep {
   type: NodeType
   text_content: string
   summary_title?: string
+  citations?: Citation[]
 }
+
+interface ExaGroundedSource {
+  id: string
+  title: string
+  url: string
+  snippet?: string
+  publishedDate?: string
+}
+
+const EXA_SOURCE_ID_PREFIX = 'exa:'
+const EXA_MAX_SOURCES = 5
+const EXA_PROMPT_SNIPPET_MAX_CHARS = 400
 
 const clampGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
 
@@ -473,7 +483,218 @@ const extractJsonPayload = (content: string): string => {
   return content.trim()
 }
 
-const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
+const toExaSourceId = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return `${EXA_SOURCE_ID_PREFIX}${Math.floor(value)}`
+  }
+
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return null
+
+  const explicit = trimmed.match(/^exa:(\d+)$/)
+  if (explicit) {
+    return `${EXA_SOURCE_ID_PREFIX}${explicit[1]}`
+  }
+
+  const numeric = trimmed.match(/^(\d+)$/)
+  if (numeric) {
+    return `${EXA_SOURCE_ID_PREFIX}${numeric[1]}`
+  }
+
+  return null
+}
+
+const uniqueStrings = (values: string[]): string[] => {
+  const seen = new Set<string>()
+  const output: string[] = []
+
+  for (const value of values) {
+    if (!seen.has(value)) {
+      seen.add(value)
+      output.push(value)
+    }
+  }
+
+  return output
+}
+
+const collectRegexMatches = (text: string, pattern: RegExp): string[] => {
+  const matches: string[] = []
+  let match = pattern.exec(text)
+
+  while (match) {
+    if (typeof match[1] === 'string' && match[1].trim() !== '') {
+      matches.push(match[1])
+    }
+    match = pattern.exec(text)
+  }
+
+  return matches
+}
+
+const extractInlineExaSourceIds = (text: string): string[] => {
+  const refs: string[] = []
+
+  const explicitDouble = collectRegexMatches(text, /\[\[\s*(exa:\d+)\s*\]\]/gi)
+  refs.push(...explicitDouble.map((value) => value.toLowerCase()))
+
+  const explicitSingle = collectRegexMatches(text, /\[\s*(exa:\d+)\s*\]/gi)
+  refs.push(...explicitSingle.map((value) => value.toLowerCase()))
+
+  const numericRefs = collectRegexMatches(text, /\[(\d+)\]/g)
+  refs.push(...numericRefs.map((value) => `${EXA_SOURCE_ID_PREFIX}${value}`))
+
+  const numericRefGroups = collectRegexMatches(text, /\[((?:\s*\d+\s*,)+\s*\d+\s*)\]/g)
+  for (const group of numericRefGroups) {
+    const ids = group
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => /^\d+$/.test(part))
+
+    refs.push(...ids.map((value) => `${EXA_SOURCE_ID_PREFIX}${value}`))
+  }
+
+  return uniqueStrings(refs)
+}
+
+const extractLegacyCitationIndexSourceIds = (item: Record<string, unknown>): string[] => {
+  if (!Array.isArray(item.citations)) return []
+
+  const refs: string[] = []
+  for (const citation of item.citations) {
+    if (typeof citation !== 'object' || citation === null) continue
+
+    const record = citation as Record<string, unknown>
+    const fromIndex = toExaSourceId(record.index)
+    if (fromIndex) {
+      refs.push(fromIndex)
+      continue
+    }
+
+    const fromRef = toExaSourceId(record.ref)
+    if (fromRef) refs.push(fromRef)
+  }
+
+  return uniqueStrings(refs)
+}
+
+const extractModelExaSourceIds = (item: Record<string, unknown>): string[] => {
+  const candidates: unknown[] = [
+    item.exa_citations,
+    item.exaCitationIds,
+    item.citation_refs,
+    item.citationRefs,
+  ]
+
+  const refs: string[] = []
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue
+    for (const entry of candidate) {
+      const id = toExaSourceId(entry)
+      if (id) refs.push(id)
+    }
+  }
+
+  return uniqueStrings(refs)
+}
+
+const toCitationIndex = (sourceId: string, fallbackIndex: number): number => {
+  const numeric = sourceId.match(/^exa:(\d+)$/i)
+  if (!numeric) return fallbackIndex
+  const parsed = Number(numeric[1])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackIndex
+}
+
+const mapExaSourceIdsToCitations = (
+  sourceIds: string[],
+  exaSourcesById: Map<string, ExaGroundedSource>
+): Citation[] => {
+  const citations: Citation[] = []
+
+  for (let i = 0; i < sourceIds.length; i += 1) {
+    const source = exaSourcesById.get(sourceIds[i])
+    if (!source) continue
+
+    const citation: Citation = {
+      index: toCitationIndex(source.id, i + 1),
+      title: source.title,
+      url: source.url,
+    }
+
+    if (source.snippet) citation.snippet = source.snippet
+    if (source.publishedDate) citation.publishedDate = source.publishedDate
+
+    citations.push(citation)
+  }
+
+  return citations
+}
+
+const buildExaSearchQuery = (ancestry: OMVNode[], globalGoal: string): string => {
+  const latestNode = ancestry[ancestry.length - 1]
+  const latestText = latestNode?.data?.text_content?.trim() || ''
+  const goal = globalGoal.trim()
+
+  if (goal && latestText) {
+    return `${goal}\n\nContext: ${latestText.slice(0, 500)}`
+  }
+
+  if (goal) return goal
+  if (latestText) return latestText.slice(0, 500)
+  return 'scientific research evidence'
+}
+
+const buildExaSources = async (query: string): Promise<ExaGroundedSource[]> => {
+  const response = await searchExa(query, { numResults: EXA_MAX_SOURCES })
+  if (response.results.length === 0) return []
+
+  const sources = response.results
+    .filter((result) => result.title.trim() !== '' && result.url.trim() !== '')
+    .slice(0, EXA_MAX_SOURCES)
+    .map((result, index) => ({
+      id: `${EXA_SOURCE_ID_PREFIX}${index + 1}`,
+      title: result.title.trim(),
+      url: result.url.trim(),
+      snippet: result.text?.trim().slice(0, EXA_PROMPT_SNIPPET_MAX_CHARS) || undefined,
+      publishedDate: result.publishedDate?.trim() || undefined,
+    }))
+
+  return sources
+}
+
+const formatExaSourcesForPrompt = (sources: ExaGroundedSource[]): string => {
+  if (sources.length === 0) {
+    return [
+      'Web search returned no usable Exa sources.',
+      'Do not invent citations. Return steps without exa_citations.',
+    ].join('\n')
+  }
+
+  const lines: string[] = [
+    'Authoritative Exa sources (use only these for citations):',
+  ]
+
+  for (const source of sources) {
+    lines.push(`- id: ${source.id}`)
+    lines.push(`  title: ${source.title}`)
+    lines.push(`  url: ${source.url}`)
+    if (source.publishedDate) lines.push(`  publishedDate: ${source.publishedDate}`)
+    if (source.snippet) lines.push(`  snippet: ${source.snippet}`)
+  }
+
+  lines.push('Citation rules:')
+  lines.push('- Every citation must reference Exa IDs only (exa:1, exa:2, ...).')
+  lines.push('- Put IDs in exa_citations array per step (e.g. ["exa:1", "exa:2"]).')
+  lines.push('- Do not generate citation title/url/snippet fields yourself.')
+
+  return lines.join('\n')
+}
+
+const toGeneratedSteps = (
+  payload: unknown,
+  exaSourcesById: Map<string, ExaGroundedSource>
+): GeneratedStep[] => {
   const list = Array.isArray(payload)
     ? payload
     : isRecord(payload) && Array.isArray(payload.steps)
@@ -525,11 +746,30 @@ const toGeneratedSteps = (payload: unknown): GeneratedStep[] => {
             ? item.summary
             : null
 
-    return {
+    const modelRefIds = extractModelExaSourceIds(item)
+    const inlineRefIds = extractInlineExaSourceIds(textContentCandidate)
+    const legacyRefIds = extractLegacyCitationIndexSourceIds(item)
+    const refIds = uniqueStrings([...modelRefIds, ...inlineRefIds, ...legacyRefIds]).filter((id) => exaSourcesById.has(id))
+    const citations = mapExaSourceIdsToCitations(refIds, exaSourcesById)
+
+    console.log(
+      `[toGeneratedSteps] Item ${index} Exa refs:`,
+      refIds,
+      '| grounded citations:',
+      citations.length
+    )
+
+    const step: GeneratedStep = {
       type,
       text_content: textContentCandidate,
       summary_title: normalizeSummaryTitle(summaryTitleCandidate, textContentCandidate),
     }
+
+    if (citations.length > 0) {
+      step.citations = citations
+    }
+
+    return step
   })
 }
 
@@ -613,61 +853,60 @@ export async function generateNextSteps(
 ): Promise<GeneratedStep[]> {
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
-  const prompt = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
+  const promptBase = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
+  const exaQuery = buildExaSearchQuery(ancestry, globalGoal)
+  const exaSources = await buildExaSources(exaQuery).catch(() => [])
+  const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
+
+  const prompt = [
+    promptBase,
+    '',
+    '## Citation Grounding Contract',
+    formatExaSourcesForPrompt(exaSources),
+  ].join('\n')
 
   try {
-    let content: string
-
-    if (provider === 'openai' || provider === 'openai-compatible') {
-      const openai = createOpenAI({
+    const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
+    const response = await fetch(`/api/ai/${provider}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         apiKey,
-        baseURL: baseUrl || undefined
-      })
-
-      const modelName = model || DEFAULT_OPENAI_MODEL
-      const result = await generateText({
-        model: openai.chat(modelName),
-        prompt,
+        model: modelName,
+        baseUrl: baseUrl || undefined,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a scientific research assistant. Follow the requested output format exactly.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        stream: false,
         temperature: 0.4,
-        maxOutputTokens: getMaxOutputTokens(modelName)
-      })
+        maxTokens: getMaxOutputTokens(modelName),
+      }),
+    })
 
-      if (result.finishReason === 'length') {
-        throw new Error('Response was truncated due to length limit. Try a shorter prompt or simpler request.')
-      }
-
-      content = result.text
-    } else {
-      const anthropic = createAnthropic({
-        apiKey,
-        baseURL: baseUrl || undefined
-      })
-
-      const modelName = model || DEFAULT_ANTHROPIC_MODEL
-      const result = await generateText({
-        model: anthropic(modelName),
-        prompt,
-        temperature: 0.4,
-        maxOutputTokens: getMaxOutputTokens(modelName)
-      })
-
-      if (result.finishReason === 'length') {
-        throw new Error('Response was truncated due to length limit. Try a shorter prompt or simpler request.')
-      }
-
-      content = result.text
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response))
     }
 
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(extractJsonPayload(content))
-    } catch (error) {
-      console.error('AI Response parsing failed. Raw content:', content)
-      console.error('Extracted payload:', extractJsonPayload(content))
-      throw new Error('Failed to parse AI response')
-    }
+    const json = (await response.json()) as { text?: string }
+    const content = typeof json.text === 'string' ? json.text : ''
 
-    const steps = toGeneratedSteps(parsed)
+    console.log('[AI Service] Raw AI content (first 500 chars):', content?.slice(0, 500))
+
+    const jsonStr = extractJsonPayload(content)
+    const parsed = JSON.parse(jsonStr)
+
+    console.log('[AI Service] Parsed JSON (first 500 chars):', JSON.stringify(parsed).slice(0, 500))
+
+    const steps = toGeneratedSteps(parsed, exaSourcesById)
+
+    console.log('[AI Service] Generated steps:', steps.length, '| citations per step:', steps.map(s => s.citations?.length ?? 0))
 
     if (steps.length < 3) {
       throw new Error('AI returned fewer than 3 suggestions')

@@ -3,7 +3,7 @@ import { Handle, Position, NodeProps } from 'reactflow'
 
 import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
 import { useStore } from '@/stores/useStore'
-import type { GhostNodeData } from '@/types/nodes'
+import type { GhostNodeData, Citation } from '@/types/nodes'
 
 const typeColors: Record<string, string> = {
   OBSERVATION: 'text-blue-700',
@@ -18,7 +18,7 @@ const typeLabels: Record<string, string> = {
 }
 
 export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>) => {
-  const { text_content, summary_title, suggestedType, ghostId } = data
+  const { text_content, summary_title, suggestedType, ghostId, citations } = data
   const acceptGhostNode = useStore((s) => s.acceptGhostNode)
   const dismissGhostNode = useStore((s) => s.dismissGhostNode)
   
@@ -47,6 +47,21 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
       <div className="mb-3 min-h-[3rem] whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
         {renderMarkdownEmphasis(text_content)}
       </div>
+
+      {citations && citations.length > 0 ? (
+        <div className="mt-2 border-t border-slate-200 pt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">References</div>
+          {citations.map((c) => (
+            <div key={c.index} className="text-[11px] leading-4 text-slate-500 mb-0.5">
+              <span className="font-medium text-slate-600">[{c.index}]</span>{' '}
+              <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                {c.title}
+              </a>
+              {c.publishedDate ? <span className="text-slate-400 ml-1">({c.publishedDate})</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="flex gap-2 mt-2">
         <button

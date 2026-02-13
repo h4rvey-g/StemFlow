@@ -4,6 +4,7 @@ type EmphasisToken =
   | { kind: 'text'; value: string }
   | { kind: 'bold'; value: string }
   | { kind: 'italic'; value: string }
+  | { kind: 'citation'; index: number }
 
 const findClosing = (input: string, marker: '*' | '**', start: number): number => {
   const markerLength = marker.length
@@ -22,13 +23,27 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
   let cursor = 0
 
   while (cursor < input.length) {
+    // Check for citation [n]
+    const citationMatch = input.slice(cursor).match(/^\[(\d+)\]/)
+    if (citationMatch) {
+      tokens.push({ kind: 'citation', index: parseInt(citationMatch[1], 10) })
+      cursor += citationMatch[0].length
+      continue
+    }
+
     const hasBoldMarker = input.slice(cursor, cursor + 2) === '**'
     const hasItalicMarker = !hasBoldMarker && input[cursor] === '*'
 
     if (!hasBoldMarker && !hasItalicMarker) {
       const nextMarker = input.indexOf('*', cursor)
-      const end = nextMarker === -1 ? input.length : nextMarker
-      tokens.push({ kind: 'text', value: input.slice(cursor, end) })
+      const nextCitation = input.slice(cursor).search(/\[\d+\]/)
+      const nextSpecial = nextCitation !== -1 && (nextMarker === -1 || nextCitation < nextMarker - cursor)
+        ? cursor + nextCitation
+        : nextMarker
+      const end = nextSpecial === -1 || nextSpecial === cursor ? input.length : nextSpecial
+      if (end > cursor) {
+        tokens.push({ kind: 'text', value: input.slice(cursor, end) })
+      }
       cursor = end
       continue
     }
@@ -48,7 +63,10 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
     cursor = closingIndex + markerLength
   }
 
-  return tokens.filter((token) => token.value.length > 0)
+  return tokens.filter((token) => {
+    if (token.kind === 'citation') return true
+    return token.value.length > 0
+  })
 }
 
 export const renderMarkdownEmphasis = (input: string): ReactNode[] => {
@@ -68,6 +86,14 @@ export const renderMarkdownEmphasis = (input: string): ReactNode[] => {
         <em key={`i-${index}`} className="italic">
           {token.value}
         </em>
+      )
+    }
+
+    if (token.kind === 'citation') {
+      return (
+        <sup key={`c-${index}`} className="text-blue-600 cursor-default">
+          [{token.index}]
+        </sup>
       )
     }
 

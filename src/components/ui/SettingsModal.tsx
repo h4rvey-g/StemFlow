@@ -34,6 +34,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [openaiKey, setOpenaiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
+
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('');
   const [openaiModel, setOpenaiModel] = useState<string>(OPENAI_MODELS[0]);
@@ -77,6 +78,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         if (keys.openaiKey) setOpenaiKey(keys.openaiKey);
         if (keys.anthropicKey) setAnthropicKey(keys.anthropicKey);
         if (keys.geminiKey) setGeminiKey(keys.geminiKey);
+
         if (keys.openaiBaseUrl) setOpenaiBaseUrl(keys.openaiBaseUrl);
         if (keys.anthropicBaseUrl) setAnthropicBaseUrl(keys.anthropicBaseUrl);
         if (keys.openaiModel) setOpenaiModel(keys.openaiModel);
@@ -108,6 +110,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       openaiKey: openaiKey || null,
       anthropicKey: anthropicKey || null,
       geminiKey: geminiKey || null,
+
       openaiBaseUrl: openaiBaseUrl.trim() || null,
       anthropicBaseUrl: anthropicBaseUrl.trim() || null,
       openaiModel,
@@ -436,6 +439,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     ) : null}
                   </div>
                 </div>
+
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">

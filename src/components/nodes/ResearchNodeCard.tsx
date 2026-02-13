@@ -15,7 +15,7 @@ import {
 } from '@/lib/file-storage'
 import { useStore } from '@/stores/useStore'
 import { useProjectStore } from '@/stores/useProjectStore'
-import type { NodeData, NodeFileAttachment } from '@/types/nodes'
+import type { NodeData, NodeFileAttachment, Citation } from '@/types/nodes'
 import { NodePopover } from '@/components/ui/NodePopover'
 
 type VisibleNodeType = 'OBSERVATION' | 'MECHANISM' | 'VALIDATION'
@@ -130,6 +130,7 @@ export function ResearchNodeCard({
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
   const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
   const attachments = normalizeAttachments(data)
+  const citations = data?.citations ?? []
   const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
 
   const setAttachments = useCallback((nextAttachments: NodeFileAttachment[]) => {
@@ -399,6 +400,20 @@ export function ResearchNodeCard({
             >
               {isTextCollapsed ? 'Read more' : 'Show less'}
             </button>
+          ) : null}
+          {citations.length > 0 ? (
+            <div className="mt-2 border-t border-slate-200 pt-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">References</div>
+              {citations.map((c) => (
+                <div key={c.index} className="text-xs leading-4 text-slate-500 mb-0.5">
+                  <span className="font-medium text-slate-600">[{c.index}]</span>{' '}
+                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="nodrag text-blue-600 hover:underline">
+                    {c.title}
+                  </a>
+                  {c.publishedDate ? <span className="text-slate-400 ml-1">({c.publishedDate})</span> : null}
+                </div>
+              ))}
+            </div>
           ) : null}
         </div>
       )}
