@@ -189,7 +189,7 @@ export const PROMPT_SETTINGS_FIELDS: PromptSettingsField[] = [
     key: 'nextStepsPromptTemplate',
     label: 'Next Steps Master Template',
     description:
-      'Main template for step generation with placeholders: `{{goal}}`, `{{context}}`, `{{currentType}}`, `{{expectedType}}`, `{{nodesContext}}`.',
+      'Main template for step generation with placeholders: `{{goal}}`, `{{experimentalConditions}}`, `{{context}}`, `{{currentType}}`, `{{expectedType}}`, `{{nodesContext}}`.',
     rows: 12,
   },
   {

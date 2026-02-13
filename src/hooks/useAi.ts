@@ -8,7 +8,7 @@ import { AiError as AiErrorClass } from '@/lib/ai/types'
 import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
 import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
 import { useAiStore } from '@/stores/useAiStore'
-import { useStore } from '@/stores/useStore'
+import { useStore, formatExperimentalConditionsForPrompt } from '@/stores/useStore'
 import type { OMVEdge, OMVNode } from '@/types/nodes'
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
@@ -50,7 +50,10 @@ const toModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKe
 const buildMessages = (context: string, action: AiAction, extraContext?: string): AiMessage[] => {
   const promptSettings = loadPromptSettings()
   const instruction = getActionInstruction(action)
-  const userContent = [context, extraContext?.trim()].filter(Boolean).join('\n\n')
+  const conditions = formatExperimentalConditionsForPrompt(
+    useStore.getState().experimentalConditions
+  )
+  const userContent = [context, extraContext?.trim(), conditions].filter(Boolean).join('\n\n')
   const userMessage = interpolatePromptTemplate(promptSettings.useAiUserMessageTemplate, {
     instruction,
     context: userContent,

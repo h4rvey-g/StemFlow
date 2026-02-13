@@ -11,7 +11,12 @@ import {
   savePromptSettings,
   type PromptSettings,
 } from '@/lib/prompt-settings'
-import { useStore } from '@/stores/useStore'
+import {
+  useStore,
+  type ExperimentalCondition,
+  EXPERIMENTAL_CONDITION_VALUES,
+  EXPERIMENTAL_CONDITION_LABELS,
+} from '@/stores/useStore'
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -21,7 +26,7 @@ interface SettingsModalProps {
 const OPENAI_MODELS = ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'] as const
 const ANTHROPIC_MODELS = ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'] as const
 const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-3-pro-preview'] as const
-type SettingsTab = 'model' | 'prompt'
+type SettingsTab = 'general' | 'model' | 'prompt'
 
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('model');
@@ -46,6 +51,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [showKey, setShowKey] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [promptSettings, setPromptSettings] = useState<PromptSettings>(DEFAULT_PROMPT_SETTINGS);
+  const experimentalConditions = useStore(state => state.experimentalConditions);
+  const setExperimentalConditions = useStore(state => state.setExperimentalConditions);
+  const [localConditions, setLocalConditions] = useState<ExperimentalCondition[]>([]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -58,8 +66,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
-      setActiveTab('model');
+      setActiveTab('general');
       setLocalGoal(globalGoal);
+      setLocalConditions([...experimentalConditions]);
       setFetchedModelOptions({});
       setModelFetchMessage('');
       setPromptSettings(loadPromptSettings());
@@ -76,7 +85,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         setIsLoading(false);
       });
     }
-  }, [isOpen, globalGoal]);
+  }, [isOpen, globalGoal, experimentalConditions]);
 
   const handleSaveModelSettings = async () => {
     setStatus('idle');
@@ -142,6 +151,22 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       ...prev,
       nextStepsPromptTemplate: DEFAULT_PROMPT_SETTINGS.nextStepsPromptTemplate,
     }));
+  };
+
+  const handleSaveGeneralSettings = () => {
+    setStatus('idle');
+    setErrorMessage('');
+    setExperimentalConditions(localConditions);
+    setStatus('saved');
+    onClose();
+  };
+
+  const handleToggleCondition = (condition: ExperimentalCondition) => {
+    setLocalConditions((prev) =>
+      prev.includes(condition)
+        ? prev.filter((c) => c !== condition)
+        : [...prev, condition],
+    );
   };
 
   const currentKey =
@@ -281,6 +306,17 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
             <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1 dark:bg-gray-700/60">
               <button
                 type="button"
+                onClick={() => setActiveTab('general')}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'general'
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-white'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                }`}
+              >
+                General
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveTab('model')}
                 className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   activeTab === 'model'
@@ -413,11 +449,11 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   />
                 </div>
               </>
-            ) : (
+            ) : activeTab === 'prompt' ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-gray-600 dark:text-gray-300">
-                    Only node generation prompt is editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
+                    Only node generation prompt is editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{experimentalConditions}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
                   </p>
                   <button
                     type="button"
@@ -443,6 +479,35 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   />
                 </div>
               </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Experimental Conditions
+                  </label>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    Select the types of experiments you work with. AI suggestions will be tailored accordingly.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {EXPERIMENTAL_CONDITION_VALUES.map((condition) => (
+                      <label
+                        key={condition}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={localConditions.includes(condition)}
+                          onChange={() => handleToggleCondition(condition)}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-gray-500 dark:bg-gray-700"
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          {EXPERIMENTAL_CONDITION_LABELS[condition]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -459,7 +524,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 Cancel
               </button>
               <button
-                onClick={activeTab === 'model' ? handleSaveModelSettings : handleSavePromptSettings}
+                onClick={activeTab === 'model' ? handleSaveModelSettings : activeTab === 'prompt' ? handleSavePromptSettings : handleSaveGeneralSettings}
                 disabled={
                   activeTab === 'model'
                     ? !provider || !currentKey || (provider === 'openai-compatible' && !openaiBaseUrl.trim())
@@ -467,7 +532,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 }
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {activeTab === 'model' ? 'Save Model Settings' : 'Save Prompt Settings'}
+                {activeTab === 'model' ? 'Save Model Settings' : activeTab === 'prompt' ? 'Save Prompt Settings' : 'Save General Settings'}
               </button>
             </div>
           </div>

@@ -13,6 +13,10 @@ import {
   loadPromptSettings,
   type PromptSettings,
 } from '@/lib/prompt-settings'
+import {
+  useStore,
+  formatExperimentalConditionsForPrompt,
+} from '@/stores/useStore'
 
 export interface GeneratedStep {
   type: NodeType
@@ -584,12 +588,17 @@ const buildPrompt = (
   const currentType = ancestry[ancestry.length - 1]?.type ?? 'UNKNOWN'
   const expectedType = expectedNextType ?? 'UNKNOWN'
 
+  const experimentalConditions = formatExperimentalConditionsForPrompt(
+    useStore.getState().experimentalConditions
+  )
+
   return interpolatePromptTemplate(promptSettings.nextStepsPromptTemplate, {
     goal,
     context,
     currentType,
     expectedType,
     nodesContext,
+    experimentalConditions,
   })
 }
 

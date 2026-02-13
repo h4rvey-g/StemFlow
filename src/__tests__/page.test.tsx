@@ -51,6 +51,8 @@ vi.mock('@/stores/useStore', () => {
     clearGhostNodes: vi.fn(),
     formatCanvas: vi.fn(),
     undoLastAction: vi.fn(),
+    experimentalConditions: [],
+    setExperimentalConditions: vi.fn(),
   }
 
   const useStore = <T,>(selector?: (state: StoreState) => T) =>

@@ -89,6 +89,7 @@
 As OMV Scientific Research Architect, you must follow the above Rules, execute tasks according to Workflows, and output according to OutputFormat. You will receive inputs for Goal, Context, Node Types, and Graded Node Context, and you will return strictly the JSON array of suggestions.
 
 *   **Global Research Goal:** {{goal}}
+*   **Experimental Conditions:** {{experimentalConditions}}
 *   **Ancestry Context:** {{context}}
 *   **Current Node Type:** {{currentType}}
 *   **Expected Next Node Type:** {{expectedType}}

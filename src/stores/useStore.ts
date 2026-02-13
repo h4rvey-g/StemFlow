@@ -38,8 +38,13 @@ const getActiveProjectId = (): string => {
   return useProjectStore.getState().activeProjectId ?? 'default-project'
 }
 
+export type ExperimentalCondition = 'dry-lab' | 'wet-lab'
+
+export const EXPERIMENTAL_CONDITION_VALUES: readonly ExperimentalCondition[] = ['dry-lab', 'wet-lab'] as const
+
 const goalKey = (projectId: string) => `stemflow:globalGoal:${projectId}`
 const groupsKey = (projectId: string) => `stemflow:manualGroups:${projectId}`
+const conditionsKey = (projectId: string) => `stemflow:experimentalConditions:${projectId}`
 
 const saveManualGroups = (groups: ManualNodeGroup[], projectId: string) => {
   if (typeof window === 'undefined') return
@@ -109,6 +114,54 @@ const loadGlobalGoal = (projectId: string): string => {
     return window.localStorage.getItem(goalKey(projectId)) ?? ''
   } catch {
     return ''
+  }
+}
+
+const isExperimentalCondition = (value: unknown): value is ExperimentalCondition =>
+  typeof value === 'string' && EXPERIMENTAL_CONDITION_VALUES.includes(value as ExperimentalCondition)
+
+export const EXPERIMENTAL_CONDITION_LABELS: Record<ExperimentalCondition, string> = {
+  'dry-lab': 'Dry Lab Experiment',
+  'wet-lab': 'Wet Lab Experiment',
+}
+
+export const formatExperimentalConditionsForPrompt = (
+  conditions: ExperimentalCondition[]
+): string => {
+  if (conditions.length === 0) return 'No experimental condition constraints specified.'
+
+  const labels = conditions.map((c) => EXPERIMENTAL_CONDITION_LABELS[c])
+
+  if (conditions.length === 1 && conditions[0] === 'dry-lab') {
+    return `Experimental condition: ${labels[0]}. Focus exclusively on computational and bioinformatics analysis approaches (e.g., data mining, statistical modeling, sequence analysis, structural prediction, pathway analysis). Do NOT suggest wet-lab experiments.`
+  }
+
+  if (conditions.length === 1 && conditions[0] === 'wet-lab') {
+    return `Experimental condition: ${labels[0]}. Focus exclusively on bench-based laboratory experiments (e.g., PCR, Western blot, cell culture, animal models, biochemical assays). Do NOT suggest purely computational or bioinformatics approaches.`
+  }
+
+  return `Experimental conditions: ${labels.join(', ')}. The researcher works in both dry-lab (computational/bioinformatics) and wet-lab (bench experiments) settings. Suggest approaches from either or both domains as scientifically appropriate.`
+}
+
+const loadExperimentalConditions = (projectId: string): ExperimentalCondition[] => {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(conditionsKey(projectId))
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isExperimentalCondition)
+  } catch {
+    return []
+  }
+}
+
+const saveExperimentalConditions = (conditions: ExperimentalCondition[], projectId: string) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(conditionsKey(projectId), JSON.stringify(conditions))
+  } catch {
+    // ignore
   }
 }
 
@@ -249,6 +302,7 @@ export interface StoreState {
   isGenerating: boolean
   aiError: string | null
   globalGoal: string
+  experimentalConditions: ExperimentalCondition[]
   isLoading: boolean
   undoStack: UndoAction[]
   loadFromDb: () => Promise<void>
@@ -270,6 +324,7 @@ export interface StoreState {
   setIsGenerating: (value: boolean) => void
   setAiError: (error: string | null) => void
   setGlobalGoal: (goal: string) => void
+  setExperimentalConditions: (conditions: ExperimentalCondition[]) => void
   setNodeGrade: (nodeId: string, grade: number) => void
   createManualGroup: (nodeIds: string[]) => void
   deleteManualGroup: (groupId: string) => void
@@ -288,6 +343,7 @@ export const useStore = create<StoreState>((set) => ({
   isGenerating: false,
   aiError: null,
   globalGoal: '',
+  experimentalConditions: [],
   isLoading: false,
   undoStack: [],
   loadFromDb: async () => {
@@ -296,6 +352,7 @@ export const useStore = create<StoreState>((set) => ({
       isLoading: true,
       manualGroups: loadManualGroups(projectId),
       globalGoal: loadGlobalGoal(projectId),
+      experimentalConditions: loadExperimentalConditions(projectId),
     })
     const [dbNodes, dbEdges] = await Promise.all([
       db.nodes.where('projectId').equals(projectId).toArray(),
@@ -608,6 +665,11 @@ export const useStore = create<StoreState>((set) => ({
       }
     }
     set(() => ({ globalGoal: goal }))
+  },
+  setExperimentalConditions: (conditions) => {
+    const projectId = getActiveProjectId()
+    saveExperimentalConditions(conditions, projectId)
+    set(() => ({ experimentalConditions: conditions }))
   },
   setNodeGrade: (nodeId, grade) => {
     const normalizedGrade = Math.min(5, Math.max(1, Math.round(grade)))
