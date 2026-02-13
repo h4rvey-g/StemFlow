@@ -32,7 +32,13 @@ interface ExaGroundedSource {
 
 const EXA_SOURCE_ID_PREFIX = 'exa:'
 const EXA_MAX_SOURCES = 5
-const EXA_PROMPT_SNIPPET_MAX_CHARS = 400
+const PLANNED_DIRECTION_COUNT = 3
+
+interface PlannedDirection {
+  summary_title: string
+  direction_focus: string
+  search_query: string
+}
 
 const clampGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
 
@@ -483,6 +489,36 @@ const extractJsonPayload = (content: string): string => {
   return content.trim()
 }
 
+/**
+ * Attempt to salvage complete JSON objects from a truncated JSON array.
+ * Walks backwards from the end looking for the last `}`, then tries
+ * closing the array at that position. Repeats until a valid parse succeeds
+ * or no more `}` candidates remain.
+ */
+const repairTruncatedJsonArray = (raw: string): unknown[] | null => {
+  const startIdx = raw.indexOf('[')
+  if (startIdx === -1) return null
+
+  const body = raw.slice(startIdx)
+  let searchFrom = body.length - 1
+
+  while (searchFrom > 0) {
+    const braceIdx = body.lastIndexOf('}', searchFrom)
+    if (braceIdx === -1) break
+
+    const candidate = body.slice(0, braceIdx + 1) + ']'
+    try {
+      const parsed: unknown = JSON.parse(candidate)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed
+      }
+    } catch {}
+    searchFrom = braceIdx - 1
+  }
+
+  return null
+}
+
 const toExaSourceId = (value: unknown): string | null => {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return `${EXA_SOURCE_ID_PREFIX}${Math.floor(value)}`
@@ -645,6 +681,36 @@ const buildExaSearchQuery = (ancestry: OMVNode[], globalGoal: string): string =>
   return 'scientific research evidence'
 }
 
+const buildFallbackDirections = (
+  ancestry: OMVNode[],
+  globalGoal: string,
+  expectedNextType: NodeType | null
+): PlannedDirection[] => {
+  const baseQuery = buildExaSearchQuery(ancestry, globalGoal)
+  const nextType = expectedNextType ?? 'OBSERVATION'
+  const latestNode = ancestry[ancestry.length - 1]
+  const latestContext = latestNode?.data?.text_content?.trim().slice(0, 180) ?? ''
+  const contextSuffix = latestContext ? ` Context: ${latestContext}` : ''
+
+  return [
+    {
+      summary_title: `${nextType} direction A`,
+      direction_focus: `Primary ${nextType.toLowerCase()} path grounded in current goal and context.`,
+      search_query: `${baseQuery} ${nextType.toLowerCase()} evidence recent review`.trim(),
+    },
+    {
+      summary_title: `${nextType} direction B`,
+      direction_focus: `Alternative ${nextType.toLowerCase()} path using orthogonal method or dataset.${contextSuffix}`,
+      search_query: `${baseQuery} ${nextType.toLowerCase()} alternative method benchmark`.trim(),
+    },
+    {
+      summary_title: `${nextType} direction C`,
+      direction_focus: `Risk-aware ${nextType.toLowerCase()} path emphasizing confounders and controls.${contextSuffix}`,
+      search_query: `${baseQuery} ${nextType.toLowerCase()} confounders controls reproducibility`.trim(),
+    },
+  ]
+}
+
 const buildExaSources = async (query: string): Promise<ExaGroundedSource[]> => {
   const response = await searchExa(query, { numResults: EXA_MAX_SOURCES })
   if (response.results.length === 0) return []
@@ -656,7 +722,7 @@ const buildExaSources = async (query: string): Promise<ExaGroundedSource[]> => {
       id: `${EXA_SOURCE_ID_PREFIX}${index + 1}`,
       title: result.title.trim(),
       url: result.url.trim(),
-      snippet: result.text?.trim().slice(0, EXA_PROMPT_SNIPPET_MAX_CHARS) || undefined,
+      snippet: result.text?.trim() || undefined,
       publishedDate: result.publishedDate?.trim() || undefined,
     }))
 
@@ -689,6 +755,164 @@ const formatExaSourcesForPrompt = (sources: ExaGroundedSource[]): string => {
   lines.push('- Do not generate citation title/url/snippet fields yourself.')
 
   return lines.join('\n')
+}
+
+const parsePlannedDirections = (payload: unknown, minCount: number = PLANNED_DIRECTION_COUNT): PlannedDirection[] => {
+  const list = Array.isArray(payload)
+    ? payload
+    : isRecord(payload) && Array.isArray(payload.directions)
+      ? payload.directions
+      : null
+
+  if (!list || list.length === 0) {
+    throw new Error('Failed to parse AI response')
+  }
+
+  const directions: PlannedDirection[] = []
+
+  for (const item of list) {
+    if (!isRecord(item)) continue
+
+    const summaryTitleRaw =
+      typeof item.summary_title === 'string'
+        ? item.summary_title
+        : typeof item.title === 'string'
+          ? item.title
+          : ''
+
+    const directionFocusRaw =
+      typeof item.direction_focus === 'string'
+        ? item.direction_focus
+        : typeof item.focus === 'string'
+          ? item.focus
+          : typeof item.rationale === 'string'
+            ? item.rationale
+            : ''
+
+    const searchQueryRaw =
+      typeof item.search_query === 'string'
+        ? item.search_query
+        : typeof item.query === 'string'
+          ? item.query
+          : typeof item.search === 'string'
+            ? item.search
+            : ''
+
+    const searchQuery = searchQueryRaw.replace(/\s+/g, ' ').trim()
+    if (!searchQuery) continue
+
+    const directionFocus = directionFocusRaw.replace(/\s+/g, ' ').trim() || 'Direction-specific scientific next step.'
+    const summaryTitle = normalizeSummaryTitle(summaryTitleRaw, directionFocus)
+
+    directions.push({
+      summary_title: summaryTitle,
+      direction_focus: directionFocus,
+      search_query: searchQuery,
+    })
+
+    if (directions.length >= PLANNED_DIRECTION_COUNT) {
+      break
+    }
+  }
+
+  if (directions.length < minCount) {
+    throw new Error(`AI returned fewer than ${minCount} planned directions`)
+  }
+
+  return directions
+}
+
+const requestAiText = async (
+  provider: 'openai' | 'anthropic' | 'openai-compatible',
+  apiKey: string,
+  modelName: string,
+  baseUrl: string | null | undefined,
+  messages: AiMessage[],
+  temperature: number,
+  maxTokens: number
+): Promise<{ text: string; finishReason: string; responseModel: string }> => {
+  const response = await fetch(`/api/ai/${provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model: modelName,
+      baseUrl: baseUrl || undefined,
+      messages,
+      stream: false,
+      temperature,
+      maxTokens,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response))
+  }
+
+  const json = (await response.json()) as {
+    text?: string
+    finishReason?: string
+    model?: string
+  }
+
+  return {
+    text: typeof json.text === 'string' ? json.text : '',
+    finishReason: typeof json.finishReason === 'string' ? json.finishReason : 'unknown',
+    responseModel: typeof json.model === 'string' ? json.model : modelName,
+  }
+}
+
+const buildPlannerPrompt = (
+  ancestry: OMVNode[],
+  globalGoal: string,
+  expectedNextType: NodeType | null,
+  gradedNodes: NodeSuggestionContext[]
+): string => {
+  const promptSettings = loadPromptSettings()
+  const ancestryContext = formatAncestryForPrompt(ancestry).trim() || promptSettings.nextStepsAncestryContextFallback
+  const goal = globalGoal.trim() || promptSettings.nextStepsGlobalGoalFallback
+  const currentType = ancestry[ancestry.length - 1]?.type ?? 'UNKNOWN'
+  const expectedType = expectedNextType ?? 'UNKNOWN'
+  const nodesContext = formatNodeGuidance(gradedNodes, promptSettings)
+  const experimentalConditions = formatExperimentalConditionsForPrompt(
+    useStore.getState().experimentalConditions
+  )
+
+  return [
+    'Plan exactly 3 distinct scientific next-step directions and concise web search queries.',
+    'Return ONLY valid JSON array (no markdown).',
+    'Each item must include:',
+    '- summary_title (3-8 words)',
+    '- direction_focus (one concise sentence)',
+    '- search_query (single-line, specific, <= 20 words, no full context dump)',
+    'All three directions must be meaningfully different and aligned to expected type.',
+    '',
+    `Goal: ${goal}`,
+    `Experimental Conditions: ${experimentalConditions}`,
+    `Ancestry Context: ${ancestryContext}`,
+    `Current Node Type: ${currentType}`,
+    `Expected Next Node Type: ${expectedType}`,
+    `Graded Node Context: ${nodesContext}`,
+  ].join('\n')
+}
+
+const buildDirectionPrompt = (
+  promptBase: string,
+  direction: PlannedDirection,
+  exaSources: ExaGroundedSource[]
+): string => {
+  return [
+    promptBase,
+    '',
+    '## Direction Constraint',
+    `summary_title: ${direction.summary_title}`,
+    `direction_focus: ${direction.direction_focus}`,
+    'In this call, generate exactly ONE suggestion aligned to the direction_focus above.',
+    'Output must be a JSON array with exactly one object.',
+    '',
+    '## Citation Grounding Contract',
+    formatExaSourcesForPrompt(exaSources),
+  ].join('\n')
 }
 
 const toGeneratedSteps = (
@@ -854,59 +1078,144 @@ export async function generateNextSteps(
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
   const promptBase = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
-  const exaQuery = buildExaSearchQuery(ancestry, globalGoal)
-  const exaSources = await buildExaSources(exaQuery).catch(() => [])
-  const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
-
-  const prompt = [
-    promptBase,
-    '',
-    '## Citation Grounding Contract',
-    formatExaSourcesForPrompt(exaSources),
-  ].join('\n')
 
   try {
     const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
-    const response = await fetch(`/api/ai/${provider}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiKey,
-        model: modelName,
-        baseUrl: baseUrl || undefined,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a scientific research assistant. Follow the requested output format exactly.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        stream: false,
-        temperature: 0.4,
-        maxTokens: getMaxOutputTokens(modelName),
-      }),
-    })
+    const plannerMaxTokens = getMaxOutputTokens(modelName)
+    const plannerResponse = await requestAiText(
+      provider,
+      apiKey,
+      modelName,
+      baseUrl,
+      [
+        {
+          role: 'system',
+          content: 'You are a scientific research planner. Output strict JSON only.',
+        },
+        {
+          role: 'user',
+          content: buildPlannerPrompt(ancestry, globalGoal, expectedNextType, gradedNodes),
+        },
+      ],
+      0.2,
+      plannerMaxTokens
+    )
+    const plannerText = plannerResponse.text
 
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response))
+    let plannedDirections: PlannedDirection[] | undefined
+    try {
+      const plannerPayload = extractJsonPayload(plannerText)
+      plannedDirections = parsePlannedDirections(JSON.parse(plannerPayload))
+    } catch (parseError) {
+      const plannerPayload = extractJsonPayload(plannerText)
+
+      if (plannerResponse.finishReason === 'length') {
+        const repaired = repairTruncatedJsonArray(plannerText)
+        if (repaired) {
+          try {
+            plannedDirections = parsePlannedDirections(repaired, 1)
+            console.warn('[AI Service] Planner response truncated, salvaged', plannedDirections.length, 'direction(s)')
+          } catch {
+            console.error('[AI Service] Planner truncated JSON repair failed')
+          }
+        }
+      }
+
+      if (!plannedDirections) {
+        console.error('[AI Service] Planner JSON parse failed', {
+          provider,
+          modelName,
+          plannerTemperature: 0.2,
+          plannerMaxTokens,
+          plannerFinishReason: plannerResponse.finishReason,
+          plannerResponseModel: plannerResponse.responseModel,
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+          plannerTextLength: plannerText.length,
+          plannerPayloadLength: plannerPayload.length,
+          plannerPayloadStartsWithBracket: plannerPayload.trimStart().startsWith('['),
+          plannerPayloadEndsWithBracket: plannerPayload.trimEnd().endsWith(']'),
+          plannerTextPreview: plannerText.slice(0, 800),
+          plannerTextTail: plannerText.slice(-160),
+          plannerPayloadPreview: plannerPayload.slice(0, 400),
+          plannerPayloadTail: plannerPayload.slice(-160),
+        })
+        throw parseError
+      }
     }
 
-    const json = (await response.json()) as { text?: string }
-    const content = typeof json.text === 'string' ? json.text : ''
+    const exaSourceGroups = await Promise.all(
+      plannedDirections.map((direction) => buildExaSources(direction.search_query).catch(() => []))
+    )
 
-    console.log('[AI Service] Raw AI content (first 500 chars):', content?.slice(0, 500))
+    const generatedByDirection = await Promise.all(
+      plannedDirections.map(async (direction, index) => {
+        const exaSources = exaSourceGroups[index]
+        const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
+        const directionMaxTokens = getMaxOutputTokens(modelName)
+        const directionResponse = await requestAiText(
+          provider,
+          apiKey,
+          modelName,
+          baseUrl,
+          [
+            {
+              role: 'system',
+              content: 'You are a scientific research assistant. Follow the requested output format exactly.',
+            },
+            {
+              role: 'user',
+              content: buildDirectionPrompt(promptBase, direction, exaSources),
+            },
+          ],
+          0.4,
+          directionMaxTokens
+        )
+        const content = directionResponse.text
 
-    const jsonStr = extractJsonPayload(content)
-    const parsed = JSON.parse(jsonStr)
+        let parsed: unknown
+        try {
+          const directionPayload = extractJsonPayload(content)
+          parsed = JSON.parse(directionPayload)
+        } catch (parseError) {
+          const directionPayload = extractJsonPayload(content)
+          console.error('[AI Service] Direction JSON parse failed', {
+            directionIndex: index,
+            provider,
+            modelName,
+            directionTemperature: 0.4,
+            directionMaxTokens,
+            directionFinishReason: directionResponse.finishReason,
+            directionResponseModel: directionResponse.responseModel,
+            summaryTitle: direction.summary_title,
+            searchQuery: direction.search_query,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+            contentLength: content.length,
+            directionPayloadLength: directionPayload.length,
+            directionPayloadStartsWithBracket: directionPayload.trimStart().startsWith('['),
+            directionPayloadEndsWithBracket: directionPayload.trimEnd().endsWith(']'),
+            contentPreview: content.slice(0, 800),
+            contentTail: content.slice(-160),
+            directionPayloadPreview: directionPayload.slice(0, 400),
+            directionPayloadTail: directionPayload.slice(-160),
+          })
+          throw parseError
+        }
+        const directionSteps = toGeneratedSteps(parsed, exaSourcesById)
+        const firstStep = directionSteps[0]
 
-    console.log('[AI Service] Parsed JSON (first 500 chars):', JSON.stringify(parsed).slice(0, 500))
+        if (!firstStep) {
+          throw new Error('Failed to parse AI response')
+        }
 
-    const steps = toGeneratedSteps(parsed, exaSourcesById)
+        if (!firstStep.summary_title?.trim()) {
+          firstStep.summary_title = direction.summary_title
+        }
 
-    console.log('[AI Service] Generated steps:', steps.length, '| citations per step:', steps.map(s => s.citations?.length ?? 0))
+        return firstStep
+      })
+    )
+
+    const steps = generatedByDirection.filter(Boolean)
 
     if (steps.length < 3) {
       throw new Error('AI returned fewer than 3 suggestions')

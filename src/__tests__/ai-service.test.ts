@@ -3,45 +3,86 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateNextSteps } from '@/lib/ai-service'
 import type { OMVNode } from '@/types/nodes'
 
-vi.mock('ai', () => ({
-  generateText: vi.fn()
-}))
-
-vi.mock('@ai-sdk/openai', () => ({
-  createOpenAI: vi.fn(() => ({
-    chat: vi.fn()
-  }))
-}))
-
-vi.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: vi.fn(() => vi.fn())
-}))
-
 const createNode = (id: string, type: OMVNode['type'], text: string): OMVNode =>
   ({
     id,
     type,
     data: { text_content: text },
-    position: { x: 0, y: 0 }
+    position: { x: 0, y: 0 },
   } as OMVNode)
+
+const jsonResponse = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 
 describe('ai service', () => {
   afterEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
   })
 
-  it('returns generated steps from openai response', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockResolvedValue({
-      text: JSON.stringify([
-        { type: 'OBSERVATION', text_content: 'Check dataset drift.' },
-        { type: 'MECHANISM', text_content: 'Hypothesize a causal driver.' },
-        { type: 'VALIDATION', text_content: 'Run a controlled experiment.' }
-      ]),
-      finishReason: 'stop',
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
-    } as any)
+  it('uses planner-generated queries and performs one Exa search per direction', async () => {
+    const exaQueries: string[] = []
+    let directionCall = 0
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+
+      if (url.includes('/api/search/exa')) {
+        const query = typeof body.query === 'string' ? body.query : ''
+        exaQueries.push(query)
+        return jsonResponse({
+          text: `Title: Source ${exaQueries.length}\nURL: https://example.com/${exaQueries.length}\nSummary: grounded snippet ${exaQueries.length}`,
+        })
+      }
+
+      if (url.includes('/api/ai/openai')) {
+        const messages = Array.isArray(body.messages)
+          ? (body.messages as Array<{ role?: string; content?: string }>)
+          : []
+        const systemMessage = messages.find((message) => message.role === 'system')?.content ?? ''
+
+        if (typeof systemMessage === 'string' && systemMessage.includes('scientific research planner')) {
+          return jsonResponse({
+            text: JSON.stringify([
+              {
+                summary_title: 'Direction One',
+                direction_focus: 'Focus one',
+                search_query: 'query one',
+              },
+              {
+                summary_title: 'Direction Two',
+                direction_focus: 'Focus two',
+                search_query: 'query two',
+              },
+              {
+                summary_title: 'Direction Three',
+                direction_focus: 'Focus three',
+                search_query: 'query three',
+              },
+            ]),
+          })
+        }
+
+        directionCall += 1
+        return jsonResponse({
+          text: JSON.stringify([
+            {
+              type: 'OBSERVATION',
+              summary_title: `Candidate ${directionCall}`,
+              text_content: `Direction ${directionCall} grounded statement [[exa:1]]`,
+              exa_citations: ['exa:1'],
+            },
+          ]),
+        })
+      }
+
+      return jsonResponse({ error: 'Not found' }, 404)
+    })
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch)
 
     const result = await generateNextSteps(
       [createNode('1', 'OBSERVATION', 'Initial finding')],
@@ -50,176 +91,98 @@ describe('ai service', () => {
       'sk-test'
     )
 
-    const firstCall = vi.mocked(generateText).mock.calls[0]
-    expect(firstCall).toBeTruthy()
-    if (firstCall) {
-      const options = firstCall[0] as { prompt?: string }
-      expect(options.prompt).toContain('# Role: OMV Scientific Research Architect')
-      expect(options.prompt).toContain('Quantity: Provide at least 3 suggestions per response.')
-    }
+    expect(exaQueries).toEqual(['query one', 'query two', 'query three'])
+    expect(result).toHaveLength(3)
+    expect(result.every((step) => step.type === 'MECHANISM')).toBe(true)
+    expect(result.every((step) => (step.citations?.length ?? 0) === 1)).toBe(true)
+    expect(fetchMock).toHaveBeenCalled()
+  })
 
-    expect(result).toEqual([
-      {
-        type: 'MECHANISM',
-        summary_title: 'Check dataset drift.',
-        text_content: 'Check dataset drift.',
-      },
-      {
-        type: 'MECHANISM',
-        summary_title: 'Hypothesize a causal driver.',
-        text_content: 'Hypothesize a causal driver.',
-      },
-      {
-        type: 'MECHANISM',
-        summary_title: 'Run a controlled experiment.',
-        text_content: 'Run a controlled experiment.',
+  it('throws when planner returns fewer than 3 directions', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes('/api/ai/openai')) {
+        return jsonResponse({
+          text: JSON.stringify([
+            {
+              summary_title: 'Only one',
+              direction_focus: 'Insufficient',
+              search_query: 'only query',
+            },
+          ]),
+        })
       }
-    ])
-    expect(generateText).toHaveBeenCalledTimes(1)
+
+      return jsonResponse({ text: '' })
+    })
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch)
+
+    await expect(
+      generateNextSteps([createNode('1', 'OBSERVATION', 'Initial finding')], 'Goal', 'openai', 'sk-test')
+    ).rejects.toThrow('AI returned fewer than 3 planned directions')
   })
 
-  it('returns generated steps from anthropic response', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockResolvedValue({
-      text: JSON.stringify([
-        { type: 'MECHANISM', text_content: 'Hypothesize signal leakage.' },
-        { type: 'VALIDATION', text_content: 'Test on a holdout split.' },
-        { type: 'OBSERVATION', text_content: 'Collect a new sample.' }
-      ]),
-      finishReason: 'stop',
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
-    } as any)
+  it('throws parse error when a direction returns no suggestion', async () => {
+    let generationCallCount = 0
 
-    const result = await generateNextSteps(
-      [createNode('2', 'MECHANISM', 'Potential cause')],
-      'Validate hypothesis',
-      'anthropic',
-      'sk-test'
-    )
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
 
-    expect(result).toEqual([
-      {
-        type: 'VALIDATION',
-        summary_title: 'Hypothesize signal leakage.',
-        text_content: 'Hypothesize signal leakage.',
-      },
-      {
-        type: 'VALIDATION',
-        summary_title: 'Test on a holdout split.',
-        text_content: 'Test on a holdout split.',
-      },
-      {
-        type: 'VALIDATION',
-        summary_title: 'Collect a new sample.',
-        text_content: 'Collect a new sample.',
+      if (url.includes('/api/search/exa')) {
+        return jsonResponse({
+          text: 'Title: Source\nURL: https://example.com/source\nSummary: snippet',
+        })
       }
-    ])
-    expect(generateText).toHaveBeenCalledTimes(1)
-  })
 
-  it('throws for invalid api key responses', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockRejectedValue(new Error('401 Unauthorized - Invalid API key'))
+      if (url.includes('/api/ai/openai')) {
+        generationCallCount += 1
+
+        if (generationCallCount === 1) {
+          return jsonResponse({
+            text: JSON.stringify([
+              {
+                summary_title: 'Direction One',
+                direction_focus: 'Focus one',
+                search_query: 'query one',
+              },
+              {
+                summary_title: 'Direction Two',
+                direction_focus: 'Focus two',
+                search_query: 'query two',
+              },
+              {
+                summary_title: 'Direction Three',
+                direction_focus: 'Focus three',
+                search_query: 'query three',
+              },
+            ]),
+          })
+        }
+
+        if (generationCallCount === 3) {
+          return jsonResponse({ text: JSON.stringify([]) })
+        }
+
+        return jsonResponse({
+          text: JSON.stringify([
+            {
+              type: 'OBSERVATION',
+              text_content: 'Valid direction [[exa:1]]',
+              exa_citations: ['exa:1'],
+            },
+          ]),
+        })
+      }
+
+      return jsonResponse({ error: 'Not found' }, 404)
+    })
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch)
 
     await expect(
-      generateNextSteps([], 'Goal', 'openai', 'bad-key')
-    ).rejects.toThrow('Invalid API key')
-  })
-
-  it('throws for rate limit responses', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockRejectedValue(new Error('429 Too Many Requests - rate limit exceeded'))
-
-    await expect(
-      generateNextSteps([], 'Goal', 'anthropic', 'sk-test')
-    ).rejects.toThrow('Rate limit exceeded')
-  })
-
-  it('throws for invalid response payloads', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockResolvedValue({
-      text: 'not-json',
-      finishReason: 'stop',
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
-    } as any)
-
-    await expect(
-      generateNextSteps([], 'Goal', 'openai', 'sk-test')
+      generateNextSteps([createNode('1', 'OBSERVATION', 'Initial finding')], 'Goal', 'openai', 'sk-test')
     ).rejects.toThrow('Failed to parse AI response')
-  })
-
-  it('throws on network failures', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockRejectedValue(new Error('fetch failed - network down'))
-
-    await expect(
-      generateNextSteps([], 'Goal', 'openai', 'sk-test')
-    ).rejects.toThrow('Network error: Failed to reach AI provider')
-  })
-
-  it('returns generated steps from openai-compatible provider', async () => {
-    const { generateText } = await import('ai')
-    
-    vi.mocked(generateText).mockResolvedValue({
-      text: JSON.stringify([
-        { type: 'VALIDATION', text_content: 'Run A/B test.' },
-        { type: 'MECHANISM', text_content: 'Explain the effect size.' },
-        { type: 'OBSERVATION', text_content: 'Collect baseline metrics.' }
-      ]),
-      finishReason: 'stop',
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
-    } as any)
-
-    const result = await generateNextSteps(
-      [createNode('3', 'VALIDATION', 'Test results')],
-      'Verify improvement',
-      'openai-compatible',
-      'sk-test',
-      'custom-model',
-      'https://custom-api.example.com/v1'
-    )
-
-    expect(result).toEqual([
-      {
-        type: 'OBSERVATION',
-        summary_title: 'Run A/B test.',
-        text_content: 'Run A/B test.',
-      },
-      {
-        type: 'OBSERVATION',
-        summary_title: 'Explain the effect size.',
-        text_content: 'Explain the effect size.',
-      },
-      {
-        type: 'OBSERVATION',
-        summary_title: 'Collect baseline metrics.',
-        text_content: 'Collect baseline metrics.',
-      }
-    ])
-    expect(generateText).toHaveBeenCalledTimes(1)
-  })
-
-  it('throws when fewer than 3 steps are returned', async () => {
-    const { generateText } = await import('ai')
-
-    vi.mocked(generateText).mockResolvedValue({
-      text: JSON.stringify([{ type: 'OBSERVATION', text_content: 'Only one.' }]),
-      finishReason: 'stop',
-      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 }
-    } as any)
-
-    await expect(
-      generateNextSteps(
-        [createNode('1', 'OBSERVATION', 'Initial finding')],
-        'Goal',
-        'openai',
-        'sk-test'
-      )
-    ).rejects.toThrow('AI returned fewer than 3 suggestions')
   })
 })

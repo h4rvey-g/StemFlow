@@ -1,5 +1,7 @@
 import React, { type ReactNode } from 'react'
 
+import type { Citation } from '@/types/nodes'
+
 type EmphasisToken =
   | { kind: 'text'; value: string }
   | { kind: 'bold'; value: string }
@@ -23,7 +25,26 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
   let cursor = 0
 
   while (cursor < input.length) {
-    // Check for citation [n]
+    const multiCitationMatch = input.slice(cursor).match(/^\[(\[exa:\d+\](?:,\s*\[exa:\d+\])*)\]/)
+    if (multiCitationMatch) {
+      const inner = multiCitationMatch[1]
+      const re = /exa:(\d+)/g
+      let m = re.exec(inner)
+      while (m) {
+        tokens.push({ kind: 'citation', index: parseInt(m[1], 10) })
+        m = re.exec(inner)
+      }
+      cursor += multiCitationMatch[0].length
+      continue
+    }
+
+    const exaCitationMatch = input.slice(cursor).match(/^\[\[exa:(\d+)\]\]/)
+    if (exaCitationMatch) {
+      tokens.push({ kind: 'citation', index: parseInt(exaCitationMatch[1], 10) })
+      cursor += exaCitationMatch[0].length
+      continue
+    }
+
     const citationMatch = input.slice(cursor).match(/^\[(\d+)\]/)
     if (citationMatch) {
       tokens.push({ kind: 'citation', index: parseInt(citationMatch[1], 10) })
@@ -36,9 +57,16 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
 
     if (!hasBoldMarker && !hasItalicMarker) {
       const nextMarker = input.indexOf('*', cursor)
-      const nextCitation = input.slice(cursor).search(/\[\d+\]/)
-      const nextSpecial = nextCitation !== -1 && (nextMarker === -1 || nextCitation < nextMarker - cursor)
-        ? cursor + nextCitation
+      const rest = input.slice(cursor)
+      const nextMultiCitation = rest.search(/\[\[exa:\d+\](?:,\s*\[exa:\d+\])*\]/)
+      const nextExaCitation = rest.search(/\[\[exa:\d+\]\]/)
+      const nextCitation = rest.search(/\[\d+\]/)
+      const nextCitationPos = [nextMultiCitation, nextExaCitation, nextCitation]
+        .filter((p) => p !== -1)
+        .reduce((min, p) => Math.min(min, p), Infinity)
+      const nextCitationAbs = nextCitationPos === Infinity ? -1 : cursor + nextCitationPos
+      const nextSpecial = nextCitationAbs !== -1 && (nextMarker === -1 || nextCitationAbs < nextMarker)
+        ? nextCitationAbs
         : nextMarker
       const end = nextSpecial === -1 || nextSpecial === cursor ? input.length : nextSpecial
       if (end > cursor) {
@@ -69,7 +97,7 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
   })
 }
 
-export const renderMarkdownEmphasis = (input: string): ReactNode[] => {
+export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): ReactNode[] => {
   const tokens = tokenizeEmphasis(input)
 
   return tokens.map((token, index) => {
@@ -90,6 +118,21 @@ export const renderMarkdownEmphasis = (input: string): ReactNode[] => {
     }
 
     if (token.kind === 'citation') {
+      const citation = citations?.find((c) => c.index === token.index)
+      if (citation?.url) {
+        return (
+          <a
+            key={`c-${index}`}
+            href={citation.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={citation.title}
+            className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+          >
+            <sup>[{token.index}]</sup>
+          </a>
+        )
+      }
       return (
         <sup key={`c-${index}`} className="text-blue-600 cursor-default">
           [{token.index}]

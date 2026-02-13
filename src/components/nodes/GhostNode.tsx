@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from 'react'
+import React, { memo, useCallback, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 
 import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
@@ -15,6 +15,35 @@ const typeLabels: Record<string, string> = {
   OBSERVATION: 'SUGGESTED OBSERVATION',
   MECHANISM: 'SUGGESTED MECHANISM',
   VALIDATION: 'SUGGESTED VALIDATION',
+}
+
+const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="nodrag nopan mt-2 border-t border-slate-200 pt-2">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-500 transition-colors"
+        onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
+      >
+        <span className="transition-transform" style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+        References ({citations.length})
+      </button>
+      {expanded ? (
+        <div className="mt-1">
+          {citations.map((c) => (
+            <div key={c.index} className="text-[11px] leading-4 text-slate-500 mb-0.5">
+              <span className="font-medium text-slate-600">[{c.index}]</span>{' '}
+              <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                {c.title}
+              </a>
+              {c.publishedDate ? <span className="text-slate-400 ml-1">({c.publishedDate})</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>) => {
@@ -45,22 +74,11 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
       ) : null}
       
       <div className="mb-3 min-h-[3rem] whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
-        {renderMarkdownEmphasis(text_content)}
+        {renderMarkdownEmphasis(text_content, citations)}
       </div>
 
       {citations && citations.length > 0 ? (
-        <div className="mt-2 border-t border-slate-200 pt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">References</div>
-          {citations.map((c) => (
-            <div key={c.index} className="text-[11px] leading-4 text-slate-500 mb-0.5">
-              <span className="font-medium text-slate-600">[{c.index}]</span>{' '}
-              <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                {c.title}
-              </a>
-              {c.publishedDate ? <span className="text-slate-400 ml-1">({c.publishedDate})</span> : null}
-            </div>
-          ))}
-        </div>
+        <ReferencesSection citations={citations} />
       ) : null}
 
       <div className="flex gap-2 mt-2">

@@ -47,12 +47,12 @@
 - Goal: Generate at least 3 scientifically valid next steps in the OMV framework based on dynamic research inputs.
 - Step 1: Analyze Inputs. Review `goal`, `context`, `currentType`, and `expectedType`.
 - Step 2: Assess History. Analyze `nodesContext` to identify high-value (4-5 star) and low-value (1 star) patterns to emulate or avoid.
-- Step 3: **Web Search (REQUIRED)**. You MUST use the `web_search` tool before generating your suggestions. Search for recent scientific publications, methodologies, or validation techniques relevant to the research goal and context. Make at least one search call. After receiving search results:
+- Step 3: **Direction-Specific Grounding**. Produce direction-specific content grounded by Exa sources supplied for that direction. Do not assume a single shared source pool across all directions. For each generated suggestion:
   - Reference sources inline with Exa source IDs only, using markers like `[[exa:1]]`, `[[exa:2]]`.
   - Include an `exa_citations` array in each generated step that uses references, containing only Exa IDs (e.g. `["exa:1", "exa:2"]`).
   - Never generate citation title/url/snippet metadata. Those fields are system-generated from Exa outputs.
   - If search returns no useful results, return steps without `exa_citations`, and do not invent references.
-- Step 4: Generate Content. Draft at least 3 suggestions that bridge the current node to the global goal, strictly adhering to the `expectedType`.
+- Step 4: Generate Content. For each invocation, draft exactly one suggestion that bridges the current node to the global goal and strictly adheres to the provided direction and `expectedType`.
 - Step 5: Apply Styling. Format the `text_content` with markdown (**bold**, *italics*) for scientific readability.
 - Step 6: Format Output. Encapsulate the suggestions into the required JSON array structure.
 - Expected result: A valid JSON array containing prioritized, context-aware scientific suggestions with styled text and optional citations.
