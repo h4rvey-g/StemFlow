@@ -86,7 +86,9 @@ const inferProvider = (state: Awaited<ReturnType<typeof loadApiKeys>>): AiProvid
   return null
 }
 
-const getProviderSettings = async () => {
+type ModelMode = 'fast' | 'think'
+
+const getProviderSettings = async (mode: ModelMode = 'think') => {
   const state = await loadApiKeys()
   const provider = inferProvider(state)
   if (!provider) {
@@ -94,28 +96,31 @@ const getProviderSettings = async () => {
   }
 
   if ((provider === 'openai' || provider === 'openai-compatible') && state.openaiKey) {
+    const thinkModel = state.openaiModel || DEFAULT_OPENAI_MODEL
     return {
       provider,
       apiKey: state.openaiKey,
-      model: state.openaiModel || DEFAULT_OPENAI_MODEL,
+      model: mode === 'fast' ? (state.openaiFastModel || thinkModel) : thinkModel,
       baseUrl: state.openaiBaseUrl,
     }
   }
 
   if (provider === 'gemini' && state.geminiKey) {
+    const thinkModel = state.geminiModel || DEFAULT_GEMINI_MODEL
     return {
       provider,
       apiKey: state.geminiKey,
-      model: state.geminiModel || DEFAULT_GEMINI_MODEL,
+      model: mode === 'fast' ? (state.geminiFastModel || thinkModel) : thinkModel,
       baseUrl: null,
     }
   }
 
   if (provider === 'anthropic' && state.anthropicKey) {
+    const thinkModel = state.anthropicModel || DEFAULT_ANTHROPIC_MODEL
     return {
       provider,
       apiKey: state.anthropicKey,
-      model: state.anthropicModel || DEFAULT_ANTHROPIC_MODEL,
+      model: mode === 'fast' ? (state.anthropicFastModel || thinkModel) : thinkModel,
       baseUrl: state.anthropicBaseUrl,
     }
   }
@@ -369,7 +374,7 @@ export const gradeNode = async (
   node: Pick<NodeSuggestionContext, 'id' | 'type' | 'content'>,
   globalGoal: string
 ): Promise<number> => {
-  const settings = await getProviderSettings()
+  const settings = await getProviderSettings('fast')
   const promptSettings = loadPromptSettings()
   const goal = globalGoal.trim() || promptSettings.gradeGlobalGoalFallback
 

@@ -44,6 +44,9 @@ describe('SettingsModal', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
   })
 
@@ -63,15 +66,19 @@ describe('SettingsModal', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
-      })
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+    })
 
     render(<SettingsModal isOpen={true} onClose={onClose} />)
-    
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
+
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/sk-/)).toHaveValue('sk-existing')
     })
-    
-    expect(loadApiKeys).toHaveBeenCalled()
   })
 
   it('switches provider and updates input value', async () => {
@@ -85,10 +92,16 @@ describe('SettingsModal', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     render(<SettingsModal isOpen={true} onClose={onClose} />)
-    
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
+
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/sk-/)).toHaveValue('sk-openai-key')
     })
@@ -106,8 +119,9 @@ describe('SettingsModal', () => {
     ;(saveApiKeys as Mock).mockResolvedValue({ success: true })
     
     render(<SettingsModal isOpen={true} onClose={onClose} />)
-    
     await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
 
     const select = screen.getByLabelText('AI Provider')
     await userEvent.selectOptions(select, 'openai')
@@ -140,16 +154,18 @@ describe('SettingsModal', () => {
       openaiModel: 'gpt-4.1-mini',
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     render(<SettingsModal isOpen={true} onClose={onClose} />)
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
 
-    await waitFor(() => {
-      expect(loadApiKeys).toHaveBeenCalled()
-    })
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
 
-    expect(screen.getByLabelText('Model')).toHaveValue('gpt-4.1-mini')
-    expect(screen.getByRole('option', { name: 'gpt-4.1-mini' })).toBeInTheDocument()
+    const thinkSelect = screen.getByLabelText('Think Model')
+    expect(thinkSelect).toHaveValue('gpt-4.1-mini')
   })
 
   it('closes modal on close button click', async () => {

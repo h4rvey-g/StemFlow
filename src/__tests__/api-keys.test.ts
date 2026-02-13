@@ -41,6 +41,9 @@ describe('api keys storage', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     }
 
     const saved = await saveApiKeys(state)
@@ -70,6 +73,9 @@ describe('api keys storage', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
   })
 
@@ -94,6 +100,9 @@ describe('api keys storage', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     expect(saved.success).toBe(true)
@@ -121,6 +130,9 @@ describe('api keys storage', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     expect(saved.success).toBe(false)
@@ -134,6 +146,9 @@ describe('api keys storage', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
   })
 })

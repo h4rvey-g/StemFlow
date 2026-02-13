@@ -8,6 +8,7 @@ import { describeImageWithVision } from '@/lib/ai-service'
 import { gradeNode } from '@/lib/ai-service'
 import { processFileInWorker } from '@/lib/file-processing-client'
 import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
+import { createRightwardPosition } from '@/lib/node-layout'
 import {
   deleteFileAttachment,
   getFileAttachmentBlob,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/file-storage'
 import { useStore } from '@/stores/useStore'
 import { useProjectStore } from '@/stores/useProjectStore'
-import type { NodeData, NodeFileAttachment, Citation } from '@/types/nodes'
+import type { NodeData, NodeFileAttachment, Citation, OMVEdge, OMVNode } from '@/types/nodes'
 import { NodePopover } from '@/components/ui/NodePopover'
 
 type VisibleNodeType = 'OBSERVATION' | 'MECHANISM' | 'VALIDATION'
@@ -136,6 +137,8 @@ export function ResearchNodeCard({
   const updateNode = useStore((state) => state.updateNode)
   const updateNodeData = useStore((state) => state.updateNodeData)
   const setNodeGrade = useStore((state) => state.setNodeGrade)
+  const addNode = useStore((state) => state.addNode)
+  const addEdge = useStore((state) => state.addEdge)
   const globalGoal = useStore((state) => state.globalGoal)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const { generate, isGenerating } = useAiGeneration()
@@ -387,6 +390,31 @@ export function ResearchNodeCard({
     }
   }, [globalGoal, id, isGradingWithAi, nodeType, setNodeGrade, textContent])
 
+  const handleAddObservation = useCallback(() => {
+    if (nodeType !== 'VALIDATION') return
+
+    const sourceNode = useStore.getState().nodes.find((node) => node.id === id)
+    const sourcePosition = sourceNode?.position ?? { x: 0, y: 0 }
+    const newNodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const newNode: OMVNode = {
+      id: newNodeId,
+      type: 'OBSERVATION',
+      position: createRightwardPosition(sourcePosition),
+      data: {
+        text_content: '',
+      },
+    }
+
+    const edge: OMVEdge = {
+      id: `edge-${id}-${newNodeId}`,
+      source: id,
+      target: newNodeId,
+    }
+
+    addNode(newNode)
+    addEdge(edge)
+  }, [addEdge, addNode, id, nodeType])
+
   return (
     <div className="relative w-[320px] overflow-hidden rounded-xl bg-white py-3 pl-4 pr-3 shadow-[0_8px_24px_rgba(15,23,42,0.12)]">
       <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 ${accentClassName}`} aria-hidden />
@@ -525,10 +553,10 @@ export function ResearchNodeCard({
           <div className="flex gap-2">
             <button
               className="flex-1 rounded-md bg-indigo-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:opacity-50"
-              onClick={() => generate(id)}
-              disabled={isGenerating}
+              onClick={nodeType === 'VALIDATION' ? handleAddObservation : () => generate(id)}
+              disabled={nodeType === 'VALIDATION' ? false : isGenerating}
             >
-              {isGenerating ? 'Generating...' : 'Generate'}
+              {nodeType === 'VALIDATION' ? 'Add observation' : isGenerating ? 'Generating...' : 'Generate'}
             </button>
 
             <button

@@ -48,6 +48,9 @@ describe('useGenerate', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     vi.spyOn(graph, 'getNodeAncestry').mockReturnValue([
@@ -119,6 +122,9 @@ describe('useGenerate', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     const { result } = renderHook(() => useGenerate())
@@ -143,6 +149,9 @@ describe('useGenerate', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
 
     vi.spyOn(aiService, 'generateNextSteps').mockRejectedValue(new Error('AI Error'))

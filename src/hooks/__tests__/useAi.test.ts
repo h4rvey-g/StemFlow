@@ -56,6 +56,9 @@ describe('useAi', () => {
       openaiModel: null,
       anthropicModel: null,
       geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
     })
   })
 

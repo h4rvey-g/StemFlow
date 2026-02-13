@@ -40,6 +40,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [openaiModel, setOpenaiModel] = useState<string>(OPENAI_MODELS[0]);
   const [anthropicModel, setAnthropicModel] = useState<string>(ANTHROPIC_MODELS[0]);
   const [geminiModel, setGeminiModel] = useState<string>(GEMINI_MODELS[0]);
+  const [openaiFastModel, setOpenaiFastModel] = useState<string>(OPENAI_MODELS[0]);
+  const [anthropicFastModel, setAnthropicFastModel] = useState<string>(ANTHROPIC_MODELS[0]);
+  const [geminiFastModel, setGeminiFastModel] = useState<string>(GEMINI_MODELS[0]);
   const [fetchedModelOptions, setFetchedModelOptions] = useState<Partial<Record<ApiProvider, string[]>>>({});
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [modelFetchMessage, setModelFetchMessage] = useState('');
@@ -84,6 +87,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         if (keys.openaiModel) setOpenaiModel(keys.openaiModel);
         if (keys.anthropicModel) setAnthropicModel(keys.anthropicModel);
         if (keys.geminiModel) setGeminiModel(keys.geminiModel);
+        if (keys.openaiFastModel) setOpenaiFastModel(keys.openaiFastModel);
+        if (keys.anthropicFastModel) setAnthropicFastModel(keys.anthropicFastModel);
+        if (keys.geminiFastModel) setGeminiFastModel(keys.geminiFastModel);
         setIsLoading(false);
       });
     }
@@ -116,6 +122,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       openaiModel,
       anthropicModel,
       geminiModel,
+      openaiFastModel,
+      anthropicFastModel,
+      geminiFastModel,
     };
 
     const result = await saveApiKeys(newState);
@@ -211,6 +220,21 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     if (provider === 'openai' || provider === 'openai-compatible') setOpenaiModel(value);
     else if (provider === 'anthropic') setAnthropicModel(value);
     else if (provider === 'gemini') setGeminiModel(value);
+  };
+
+  const currentFastModel =
+    provider === 'openai' || provider === 'openai-compatible'
+      ? openaiFastModel
+      : provider === 'anthropic'
+        ? anthropicFastModel
+      : provider === 'gemini'
+        ? geminiFastModel
+      : '';
+
+  const setCurrentFastModel = (value: string) => {
+    if (provider === 'openai' || provider === 'openai-compatible') setOpenaiFastModel(value);
+    else if (provider === 'anthropic') setAnthropicFastModel(value);
+    else if (provider === 'gemini') setGeminiFastModel(value);
   };
 
   const fallbackModelOptions =
@@ -410,12 +434,37 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
                 <div>
                   <label htmlFor="settings-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Model
+                    Think Model
                   </label>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    Used for node generation, summarization, and other reasoning tasks.
+                  </p>
                   <select
                     id="settings-model"
                     value={currentModel}
                     onChange={(e) => setCurrentModel(e.target.value)}
+                    disabled={!provider}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    {modelOptions.map((modelOption) => (
+                      <option key={modelOption} value={modelOption}>
+                        {modelOption}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="settings-fast-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Fast Model
+                  </label>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    Used for quick tasks like AI grading of nodes.
+                  </p>
+                  <select
+                    id="settings-fast-model"
+                    value={currentFastModel}
+                    onChange={(e) => setCurrentFastModel(e.target.value)}
                     disabled={!provider}
                     className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   >

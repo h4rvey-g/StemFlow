@@ -6,6 +6,9 @@ const ANTHROPIC_BASEURL_STORAGE = 'stemflow:baseurl:anthropic'
 const OPENAI_MODEL_STORAGE = 'stemflow:model:openai'
 const ANTHROPIC_MODEL_STORAGE = 'stemflow:model:anthropic'
 const GEMINI_MODEL_STORAGE = 'stemflow:model:gemini'
+const OPENAI_FAST_MODEL_STORAGE = 'stemflow:fastmodel:openai'
+const ANTHROPIC_FAST_MODEL_STORAGE = 'stemflow:fastmodel:anthropic'
+const GEMINI_FAST_MODEL_STORAGE = 'stemflow:fastmodel:gemini'
 const PROVIDER_STORAGE = 'stemflow:provider'
 
 const textEncoder = new TextEncoder()
@@ -23,6 +26,9 @@ export interface ApiKeyState {
   openaiModel: string | null
   anthropicModel: string | null
   geminiModel: string | null
+  openaiFastModel: string | null
+  anthropicFastModel: string | null
+  geminiFastModel: string | null
 }
 
 export const STORAGE_KEYS = {
@@ -34,6 +40,9 @@ export const STORAGE_KEYS = {
   openaiModel: OPENAI_MODEL_STORAGE,
   anthropicModel: ANTHROPIC_MODEL_STORAGE,
   geminiModel: GEMINI_MODEL_STORAGE,
+  openaiFastModel: OPENAI_FAST_MODEL_STORAGE,
+  anthropicFastModel: ANTHROPIC_FAST_MODEL_STORAGE,
+  geminiFastModel: GEMINI_FAST_MODEL_STORAGE,
   provider: PROVIDER_STORAGE
 } as const
 
@@ -244,6 +253,24 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
       storage.removeItem(GEMINI_MODEL_STORAGE)
     }
 
+    if (state.openaiFastModel) {
+      storage.setItem(OPENAI_FAST_MODEL_STORAGE, state.openaiFastModel)
+    } else {
+      storage.removeItem(OPENAI_FAST_MODEL_STORAGE)
+    }
+
+    if (state.anthropicFastModel) {
+      storage.setItem(ANTHROPIC_FAST_MODEL_STORAGE, state.anthropicFastModel)
+    } else {
+      storage.removeItem(ANTHROPIC_FAST_MODEL_STORAGE)
+    }
+
+    if (state.geminiFastModel) {
+      storage.setItem(GEMINI_FAST_MODEL_STORAGE, state.geminiFastModel)
+    } else {
+      storage.removeItem(GEMINI_FAST_MODEL_STORAGE)
+    }
+
     return { success: true }
   } catch (error) {
     console.error('saveApiKeys error:', error)
@@ -277,7 +304,7 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
 export const loadApiKeys = async (): Promise<ApiKeyState> => {
   const storage = getStorage()
   if (!storage) {
-    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null }
+    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null, openaiFastModel: null, anthropicFastModel: null, geminiFastModel: null }
   }
 
   try {
@@ -291,6 +318,9 @@ export const loadApiKeys = async (): Promise<ApiKeyState> => {
     const openaiModel = storage.getItem(OPENAI_MODEL_STORAGE)
     const anthropicModel = storage.getItem(ANTHROPIC_MODEL_STORAGE)
     const geminiModel = storage.getItem(GEMINI_MODEL_STORAGE)
+    const openaiFastModel = storage.getItem(OPENAI_FAST_MODEL_STORAGE)
+    const anthropicFastModel = storage.getItem(ANTHROPIC_FAST_MODEL_STORAGE)
+    const geminiFastModel = storage.getItem(GEMINI_FAST_MODEL_STORAGE)
 
     const [openaiKey, anthropicKey, geminiKey] = await Promise.all([
       openaiCipher ? decryptString(openaiCipher, key) : Promise.resolve(null),
@@ -307,8 +337,8 @@ export const loadApiKeys = async (): Promise<ApiKeyState> => {
         ? providerValue
         : null
 
-    return { provider, openaiKey, anthropicKey, geminiKey, openaiBaseUrl, anthropicBaseUrl, openaiModel, anthropicModel, geminiModel }
+    return { provider, openaiKey, anthropicKey, geminiKey, openaiBaseUrl, anthropicBaseUrl, openaiModel, anthropicModel, geminiModel, openaiFastModel, anthropicFastModel, geminiFastModel }
   } catch {
-    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null }
+    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null, openaiFastModel: null, anthropicFastModel: null, geminiFastModel: null }
   }
 }
