@@ -58,6 +58,24 @@ describe('createGeminiRequest', () => {
 })
 
 describe('parseGeminiResponse', () => {
+  it('prefers candidate.finishReason when present', () => {
+    const response = parseGeminiResponse({
+      model: 'gemini-2.5-flash',
+      candidates: [
+        {
+          finishReason: 'MAX_TOKENS',
+          content: { parts: [] },
+        },
+      ],
+    })
+
+    expect(response).toEqual({
+      text: '',
+      finishReason: 'MAX_TOKENS',
+      model: 'gemini-2.5-flash',
+    })
+  })
+
   it('joins text parts, returns finishReason, and honors model when present', () => {
     const response = parseGeminiResponse({
       model: 'gemini-3-pro-preview',

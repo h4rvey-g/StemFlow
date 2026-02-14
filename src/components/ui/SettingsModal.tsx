@@ -251,10 +251,11 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       ? fetchedModelOptions[provider]!
       : [...fallbackModelOptions];
 
-  const modelOptions =
-    currentModel && !providerModelOptions.includes(currentModel)
-      ? [currentModel, ...providerModelOptions]
-      : providerModelOptions;
+  const selectedModelOptions = [currentModel, currentFastModel].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  const modelOptions = Array.from(new Set([...selectedModelOptions, ...providerModelOptions]));
 
   const handleFetchModels = async () => {
     if (!provider) {

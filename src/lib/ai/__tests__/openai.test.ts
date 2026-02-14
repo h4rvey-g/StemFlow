@@ -75,6 +75,80 @@ describe('parseOpenAIResponse', () => {
     })
   })
 
+  it('supports array-based content blocks and joins text parts', () => {
+    const result = parseOpenAIResponse({
+      model: 'gpt-4o',
+      choices: [
+        {
+          message: {
+            content: [
+              { type: 'output_text', text: 'Four' },
+              { type: 'output_text', text: ' stars' },
+            ],
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      text: 'Four stars',
+      finishReason: 'stop',
+      model: 'gpt-4o',
+    })
+  })
+
+  it('supports responses with output_text field', () => {
+    const result = parseOpenAIResponse({
+      model: 'gpt-4.1-mini',
+      output_text: '4',
+    })
+
+    expect(result).toEqual({
+      text: '4',
+      finishReason: 'stop',
+      model: 'gpt-4.1-mini',
+    })
+  })
+
+  it('supports responses with output content blocks', () => {
+    const result = parseOpenAIResponse({
+      model: 'gpt-4.1-mini',
+      output: [
+        {
+          content: [
+            { type: 'output_text', text: '5' },
+          ],
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      text: '5',
+      finishReason: 'stop',
+      model: 'gpt-4.1-mini',
+    })
+  })
+
+  it('supports gemini-style candidates payload when used through compatible gateways', () => {
+    const result = parseOpenAIResponse({
+      model: 'gemini-2.5-flash',
+      candidates: [
+        {
+          content: {
+            parts: [{ text: '2' }],
+          },
+        },
+      ],
+    })
+
+    expect(result).toEqual({
+      text: '2',
+      finishReason: 'stop',
+      model: 'gemini-2.5-flash',
+    })
+  })
+
   it('falls back to default finish reason when missing', () => {
     const result = parseOpenAIResponse({
       choices: [

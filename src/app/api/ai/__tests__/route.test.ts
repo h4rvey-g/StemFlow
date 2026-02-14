@@ -82,6 +82,45 @@ describe('/api/ai/[provider] route', () => {
     })
   })
 
+  it('non-stream openai-compatible accepts gemini-style payloads from compatible gateways', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: 'gemini-2.5-flash',
+          candidates: [
+            {
+              content: {
+                parts: [{ text: '4' }],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+
+    const res = await POST(
+      new Request('http://localhost/api/ai/openai-compatible', {
+        method: 'POST',
+        body: JSON.stringify({
+          apiKey: 'sk-test',
+          model: 'gemini-2.5-flash',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          messages: [{ role: 'user', content: 'grade this' }],
+          stream: false,
+        }),
+      }),
+      { params: { provider: 'openai-compatible' } }
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      text: '4',
+      model: 'gemini-2.5-flash',
+      finishReason: 'stop',
+    })
+  })
+
   it('stream gemini passes through SSE body', async () => {
     const upstream = new Response(streamFromStrings(['data: {"x":1}\n\n']), {
       status: 200,

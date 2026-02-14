@@ -168,6 +168,31 @@ describe('SettingsModal', () => {
     expect(thinkSelect).toHaveValue('gpt-4.1-mini')
   })
 
+  it('shows persisted fast model even when not in fallback list', async () => {
+    ;(loadApiKeys as Mock).mockResolvedValue({
+      provider: 'openai',
+      openaiKey: 'sk-existing',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: 'gpt-4o',
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: 'gpt-4.1-mini',
+      anthropicFastModel: null,
+      geminiFastModel: null,
+    })
+
+    render(<SettingsModal isOpen={true} onClose={onClose} />)
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
+
+    const fastSelect = screen.getByLabelText('Fast Model')
+    expect(fastSelect).toHaveValue('gpt-4.1-mini')
+  })
+
   it('closes modal on close button click', async () => {
     render(<SettingsModal isOpen={true} onClose={onClose} />)
     await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())

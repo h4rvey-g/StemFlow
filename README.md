@@ -6,7 +6,13 @@ Everything runs in your browser. Your data stays in IndexedDB. Your API keys sta
 
 ## TODO
 [] Bilingual support (English + Chinese)
-[] Pin nodes to keep them expanded, and fold others
+[] Separate mechanism and validation prompt
+[] Pin nodes to keep them expanded
+[] Add a "Fold all" and "Expand all" button, which folds/expands all nodes on the canvas except the pinned ones
+[] add bright and dark modes
+[] Add example project and tutorial
+[] Add translate button on each node to translate from English to Chinese and vice versa; add auto-translate option in settings
+[] Opt for too many nodes/content: RAG?
 
 ## Features
 

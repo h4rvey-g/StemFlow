@@ -283,22 +283,96 @@ const recoverGrade = async (
       ],
       stream: false,
       temperature: 0,
-      maxTokens: 8,
     }),
   })
 
   if (!response.ok) {
+    console.warn('[gradeNode] Recovery request failed', {
+      provider: settings.provider,
+      model: settings.model,
+      status: response.status,
+    })
     return null
   }
 
-  const json = (await response.json()) as { text?: string }
+  const json = (await response.json()) as { text?: string; finishReason?: string }
   const candidate = typeof json.text === 'string' ? json.text : ''
   if (!candidate.trim()) {
+    console.warn('[gradeNode] Recovery returned empty candidate text', {
+      provider: settings.provider,
+      model: settings.model,
+      finishReason: json.finishReason,
+    })
     return null
   }
 
   const parsed = parseNumericRatingFromText(candidate)
+  console.debug('[gradeNode] Recovery parse result', {
+    provider: settings.provider,
+    model: settings.model,
+    finishReason: json.finishReason,
+    candidatePreview: candidate.slice(0, 160),
+    parsed,
+  })
   return parsed === null ? null : parsed
+}
+
+const retryDirectGrade = async (
+  settings: Awaited<ReturnType<typeof getProviderSettings>>,
+  node: Pick<NodeSuggestionContext, 'id' | 'type' | 'content'>,
+  goal: string,
+): Promise<number | null> => {
+  const response = await fetch(`/api/ai/${settings.provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey: settings.apiKey,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Return exactly one integer from 1 to 5 for scientific node quality. No JSON, no markdown, no explanation.',
+        },
+        {
+          role: 'user',
+          content: [
+            `Goal: ${goal}`,
+            `Node ID: ${node.id}`,
+            `Node type: ${node.type}`,
+            `Node content: ${node.content}`,
+            'Output only one digit (1,2,3,4,5).',
+          ].join('\n'),
+        },
+      ],
+      stream: false,
+      temperature: 0,
+    }),
+  })
+
+  if (!response.ok) {
+    console.warn('[gradeNode] Direct retry request failed', {
+      provider: settings.provider,
+      model: settings.model,
+      status: response.status,
+    })
+    return null
+  }
+
+  const json = (await response.json()) as { text?: string; finishReason?: string }
+  const candidate = typeof json.text === 'string' ? json.text : ''
+  const parsed = parseNumericRatingFromText(candidate)
+
+  console.debug('[gradeNode] Direct retry parse result', {
+    provider: settings.provider,
+    model: settings.model,
+    finishReason: json.finishReason,
+    candidatePreview: candidate.slice(0, 120),
+    parsed,
+  })
+
+  return parsed
 }
 
 const readErrorMessage = async (response: Response): Promise<string> => {
@@ -396,6 +470,14 @@ export const gradeNode = async (
     },
   ]
 
+  console.debug('[gradeNode] Starting AI grade', {
+    nodeId: node.id,
+    nodeType: node.type,
+    provider: settings.provider,
+    model: settings.model,
+    contentLength: node.content.length,
+  })
+
   const response = await fetch(`/api/ai/${settings.provider}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -414,20 +496,63 @@ export const gradeNode = async (
     throw new Error(await readErrorMessage(response))
   }
 
-  const json = (await response.json()) as { text?: string }
+  const json = (await response.json()) as { text?: string; finishReason?: string }
   const text = typeof json.text === 'string' ? json.text : ''
+
+  console.debug('[gradeNode] Primary response received', {
+    provider: settings.provider,
+    model: settings.model,
+    finishReason: json.finishReason,
+    textPreview: text.slice(0, 200),
+    textLength: text.length,
+  })
 
   const parsed = parseGrade(text)
   if (parsed !== null) {
+    console.debug('[gradeNode] Parsed grade from primary response', {
+      nodeId: node.id,
+      parsed,
+    })
     return parsed
   }
 
+  console.warn('[gradeNode] Primary parse failed, attempting recovery', {
+    nodeId: node.id,
+    provider: settings.provider,
+    model: settings.model,
+  })
+
+  const retried = await retryDirectGrade(settings, node, goal).catch(() => null)
+  if (retried !== null) {
+    console.debug('[gradeNode] Recovered grade from direct retry', {
+      nodeId: node.id,
+      retried,
+    })
+    return retried
+  }
+
+  console.warn('[gradeNode] Direct retry failed, attempting extraction recovery', {
+    nodeId: node.id,
+    provider: settings.provider,
+    model: settings.model,
+  })
+
   const recovered = await recoverGrade(text, settings).catch(() => null)
   if (recovered !== null) {
+    console.debug('[gradeNode] Recovered grade from extraction prompt', {
+      nodeId: node.id,
+      recovered,
+    })
     return recovered
   }
 
   // Neutral fallback keeps the UI usable even if provider output is malformed.
+  console.warn('[gradeNode] Falling back to neutral grade 3', {
+    nodeId: node.id,
+    provider: settings.provider,
+    model: settings.model,
+    primaryTextPreview: text.slice(0, 200),
+  })
   return 3
 }
 

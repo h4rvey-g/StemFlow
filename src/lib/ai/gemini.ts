@@ -48,6 +48,7 @@ const toGeminiParts = (content: AiRequestOptions['messages'][number]['content'])
 }
 
 interface GeminiResponseCandidate {
+  finishReason?: string
   metadata?: { finishReason?: string }
   content?: { parts?: Array<{ text?: string }> }
 }
@@ -99,7 +100,7 @@ export function parseGeminiResponse(json: unknown): AiResponse {
     .map((part) => (typeof part.text === 'string' ? part.text : ''))
     .join('')
 
-  const finishReason = candidate?.metadata?.finishReason ?? 'stop'
+  const finishReason = candidate?.finishReason ?? candidate?.metadata?.finishReason ?? 'stop'
   const model = typeof parsed.model === 'string' ? parsed.model : 'unknown'
 
   return { text, finishReason, model }

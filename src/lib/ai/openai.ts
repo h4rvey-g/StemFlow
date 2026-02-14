@@ -37,14 +37,69 @@ const toOpenAIMessages = (messages: AiRequestOptions['messages']) =>
 
 interface OpenAIChoice {
   message?: {
-    content?: string
+    content?: string | unknown[]
   }
+  text?: string
   finish_reason?: string
 }
 
 interface OpenAIResponse {
   model?: string
   choices?: OpenAIChoice[]
+  output_text?: string
+  output?: unknown[]
+  candidates?: unknown[]
+  content?: unknown[]
+  stop_reason?: string
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const readPartText = (part: unknown): string => {
+  if (typeof part === 'string') return part
+  if (!isRecord(part)) return ''
+  if (typeof part.text === 'string') return part.text
+  return ''
+}
+
+const extractOutputArrayText = (output: unknown): string => {
+  if (!Array.isArray(output)) return ''
+
+  const chunks: string[] = []
+  for (const item of output) {
+    if (!isRecord(item)) continue
+    const content = item.content
+    if (!Array.isArray(content)) continue
+
+    for (const block of content) {
+      if (!isRecord(block)) continue
+      if (typeof block.text === 'string') {
+        chunks.push(block.text)
+      }
+    }
+  }
+
+  return chunks.join('')
+}
+
+const extractGeminiCandidatesText = (candidates: unknown): string => {
+  if (!Array.isArray(candidates) || candidates.length === 0) return ''
+  const candidate = candidates[0]
+  if (!isRecord(candidate)) return ''
+
+  const content = candidate.content
+  if (!isRecord(content)) return ''
+
+  const parts = content.parts
+  if (!Array.isArray(parts)) return ''
+
+  return parts.map(readPartText).join('')
+}
+
+const extractAnthropicContentText = (content: unknown): string => {
+  if (!Array.isArray(content)) return ''
+  return content.map(readPartText).join('')
 }
 
 export function createOpenAIRequest(options: AiRequestOptions) {
@@ -82,8 +137,27 @@ export function parseOpenAIResponse(json: unknown): AiResponse {
   const parsed = json as OpenAIResponse
   const choice = parsed.choices?.[0]
   const model = typeof parsed.model === 'string' ? parsed.model : 'unknown'
-  const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : 'stop'
-  const text = choice?.message?.content
+  const finishReason =
+    typeof choice?.finish_reason === 'string'
+      ? choice.finish_reason
+      : typeof parsed.stop_reason === 'string'
+        ? parsed.stop_reason
+        : 'stop'
+
+  const content = choice?.message?.content
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map(readPartText).join('')
+        : typeof choice?.text === 'string'
+          ? choice.text
+          : typeof parsed.output_text === 'string'
+            ? parsed.output_text
+            : extractOutputArrayText(parsed.output) ||
+                extractGeminiCandidatesText(parsed.candidates) ||
+                extractAnthropicContentText(parsed.content)
+                || null
 
   if (typeof text !== 'string') {
     return { text: '', finishReason: 'error', model }

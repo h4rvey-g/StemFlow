@@ -36,6 +36,25 @@ const withGeminiKey = (url: string, apiKey: string) => {
   return final.toString()
 }
 
+const parseOpenAICompatibleResponse = (json: unknown): AiResponse => {
+  const parsedOpenAI = parseOpenAIResponse(json)
+  if (parsedOpenAI.text.trim()) {
+    return parsedOpenAI
+  }
+
+  const parsedGemini = parseGeminiResponse(json)
+  if (parsedGemini.text.trim()) {
+    return parsedGemini
+  }
+
+  const parsedAnthropic = parseAnthropicResponse(json)
+  if (parsedAnthropic.text.trim()) {
+    return parsedAnthropic
+  }
+
+  return parsedOpenAI
+}
+
 export async function POST(request: Request, context: { params: Params }) {
   const providerRaw = context.params.provider
   if (!isProvider(providerRaw)) {
@@ -120,7 +139,8 @@ export async function POST(request: Request, context: { params: Params }) {
 
     let parsed: AiResponse
     if (providerRaw === 'gemini') parsed = parseGeminiResponse(json)
-    else if (providerRaw === 'openai' || providerRaw === 'openai-compatible') parsed = parseOpenAIResponse(json)
+    else if (providerRaw === 'openai') parsed = parseOpenAIResponse(json)
+    else if (providerRaw === 'openai-compatible') parsed = parseOpenAICompatibleResponse(json)
     else parsed = parseAnthropicResponse(json)
 
     return Response.json(parsed, {
