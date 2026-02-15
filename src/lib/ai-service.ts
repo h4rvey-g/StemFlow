@@ -1,9 +1,9 @@
 import { loadApiKeys } from '@/lib/api-keys'
+import { getModelOutputTokenLimit } from '@/lib/ai/max-tokens'
 import { formatAncestryForPrompt } from '@/lib/graph'
 import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
 import type { NodeType, OMVNode, Citation } from '@/types/nodes'
-import modelsSchema from '@/lib/models-schema.json'
 import {
   interpolatePromptTemplate,
   loadPromptSettings,
@@ -395,6 +395,7 @@ export const describeImageWithVision = async (
 ): Promise<string> => {
   const settings = await getProviderSettings()
   const promptSettings = loadPromptSettings()
+  const maxTokens = getModelOutputTokenLimit(settings.model)
 
   const messageText = contextText?.trim()
     ? interpolatePromptTemplate(promptSettings.visionUserPromptWithContextTemplate, {
@@ -426,7 +427,7 @@ export const describeImageWithVision = async (
       messages,
       stream: false,
       temperature: 0.2,
-      maxTokens: 300,
+      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
     }),
   })
 
@@ -450,6 +451,7 @@ export const gradeNode = async (
 ): Promise<number> => {
   const settings = await getProviderSettings('fast')
   const promptSettings = loadPromptSettings()
+  const maxTokens = getModelOutputTokenLimit(settings.model)
   const goal = globalGoal.trim() || promptSettings.gradeGlobalGoalFallback
 
   const prompt = interpolatePromptTemplate(promptSettings.gradeUserPromptTemplate, {
@@ -488,7 +490,7 @@ export const gradeNode = async (
       messages,
       stream: false,
       temperature: 0,
-      maxTokens: 80,
+      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
     }),
   })
 
@@ -558,18 +560,6 @@ export const gradeNode = async (
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
-
-const getMaxOutputTokens = (modelId: string): number => {
-  for (const provider of Object.values(modelsSchema)) {
-    if (provider && typeof provider === 'object' && 'models' in provider) {
-      const models = provider.models as Record<string, any>
-      if (modelId in models) {
-        return models[modelId]?.limit?.output ?? 4096
-      }
-    }
-  }
-  return 4096
-}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -959,7 +949,7 @@ const requestAiText = async (
   baseUrl: string | null | undefined,
   messages: AiMessage[],
   temperature: number,
-  maxTokens: number
+  maxTokens?: number
 ): Promise<{ text: string; finishReason: string; responseModel: string }> => {
   const response = await fetch(`/api/ai/${provider}`, {
     method: 'POST',
@@ -971,7 +961,7 @@ const requestAiText = async (
       messages,
       stream: false,
       temperature,
-      maxTokens,
+      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
     }),
   })
 
@@ -1211,7 +1201,7 @@ export async function generateNextSteps(
 
   try {
     const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
-    const plannerMaxTokens = getMaxOutputTokens(modelName)
+    const plannerMaxTokens = getModelOutputTokenLimit(modelName)
     const plannerResponse = await requestAiText(
       provider,
       apiKey,
@@ -1281,7 +1271,7 @@ export async function generateNextSteps(
       plannedDirections.map(async (direction, index) => {
         const exaSources = exaSourceGroups[index]
         const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
-        const directionMaxTokens = getMaxOutputTokens(modelName)
+        const directionMaxTokens = getModelOutputTokenLimit(modelName)
         const directionResponse = await requestAiText(
           provider,
           apiKey,

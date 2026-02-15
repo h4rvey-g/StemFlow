@@ -104,13 +104,16 @@ export function createAnthropicRequest(options: AiRequestOptions) {
     model: AnthropicModel
     system?: string
     messages: Array<{ role: 'user' | 'assistant'; content: AnthropicMessageContent }>
-    max_tokens: number
+    max_tokens?: number
     temperature?: number
     stream?: boolean
   } = {
     model,
     messages: assistantAndUserMessages,
-    max_tokens: options.maxTokens ?? 1024,
+  }
+
+  if (typeof options.maxTokens === 'number') {
+    body.max_tokens = options.maxTokens
   }
 
   if (systemMessages.length) {

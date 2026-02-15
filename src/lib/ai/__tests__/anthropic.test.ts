@@ -41,7 +41,7 @@ describe('createAnthropicRequest', () => {
     })
   })
 
-  it('aggregates multiple system messages with double newlines and always sends max_tokens', () => {
+  it('aggregates multiple system messages with double newlines and omits max_tokens when not provided', () => {
     const { body } = createAnthropicRequest({
       provider: 'anthropic',
       model: 'claude-3-haiku-20240307',
@@ -53,7 +53,7 @@ describe('createAnthropicRequest', () => {
     })
 
     expect(body.system).toBe('Follow safety guidelines\n\nOnly return concise answers')
-    expect(body.max_tokens).toBe(1024)
+    expect(body.max_tokens).toBeUndefined()
     expect(body.messages).toEqual([{ role: 'user', content: 'List the key findings' }])
   })
 })
