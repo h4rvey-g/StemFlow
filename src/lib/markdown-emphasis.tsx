@@ -8,6 +8,26 @@ type EmphasisToken =
   | { kind: 'italic'; value: string }
   | { kind: 'citation'; index: number }
 
+type MarkdownListType = 'unordered' | 'ordered'
+
+interface MarkdownListItem {
+  text: string
+  children: MarkdownListBlock[]
+}
+
+interface MarkdownListBlock {
+  kind: 'list'
+  listType: MarkdownListType
+  items: MarkdownListItem[]
+}
+
+interface MarkdownParagraphBlock {
+  kind: 'paragraph'
+  text: string
+}
+
+type MarkdownBlock = MarkdownParagraphBlock | MarkdownListBlock
+
 const findClosing = (input: string, marker: '*' | '**', start: number): number => {
   const markerLength = marker.length
   for (let index = start; index < input.length; index += 1) {
@@ -97,13 +117,153 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
   })
 }
 
-export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): ReactNode[] => {
+const countIndent = (line: string): number => {
+  const leadingWhitespace = line.match(/^\s*/)?.[0] ?? ''
+  return leadingWhitespace.replace(/\t/g, '  ').length
+}
+
+const parseListMarker = (
+  line: string
+): { indent: number; listType: MarkdownListType; content: string } | null => {
+  const unorderedMatch = line.match(/^(\s*)([-*+])\s+(.*)$/)
+  if (unorderedMatch) {
+    return {
+      indent: unorderedMatch[1].replace(/\t/g, '  ').length,
+      listType: 'unordered',
+      content: unorderedMatch[3].trimEnd(),
+    }
+  }
+
+  const orderedMatch = line.match(/^(\s*)(\d+)[.)]\s+(.*)$/)
+  if (orderedMatch) {
+    return {
+      indent: orderedMatch[1].replace(/\t/g, '  ').length,
+      listType: 'ordered',
+      content: orderedMatch[3].trimEnd(),
+    }
+  }
+
+  return null
+}
+
+const parseListBlock = (lines: string[], startIndex: number): [MarkdownListBlock, number] => {
+  const firstMarker = parseListMarker(lines[startIndex])
+  if (!firstMarker) {
+    return [
+      {
+        kind: 'list',
+        listType: 'unordered',
+        items: [],
+      },
+      startIndex,
+    ]
+  }
+
+  const baseIndent = firstMarker.indent
+  const listType = firstMarker.listType
+  const items: MarkdownListItem[] = []
+  let cursor = startIndex
+
+  while (cursor < lines.length) {
+    const line = lines[cursor]
+    const marker = parseListMarker(line)
+
+    if (!marker) {
+      if (line.trim().length === 0) {
+        cursor += 1
+        continue
+      }
+
+      const indent = countIndent(line)
+      if (indent > baseIndent && items.length > 0) {
+        const lastItem = items[items.length - 1]
+        const trimmed = line.trim()
+        lastItem.text = lastItem.text.length > 0 ? `${lastItem.text}\n${trimmed}` : trimmed
+        cursor += 1
+        continue
+      }
+
+      break
+    }
+
+    if (marker.indent < baseIndent) break
+
+    if (marker.indent > baseIndent) {
+      if (items.length === 0) break
+      const [nestedList, nextCursor] = parseListBlock(lines, cursor)
+      items[items.length - 1].children.push(nestedList)
+      cursor = nextCursor
+      continue
+    }
+
+    if (marker.listType !== listType) break
+
+    items.push({
+      text: marker.content,
+      children: [],
+    })
+
+    cursor += 1
+  }
+
+  return [
+    {
+      kind: 'list',
+      listType,
+      items,
+    },
+    cursor,
+  ]
+}
+
+const parseMarkdownBlocks = (input: string): MarkdownBlock[] => {
+  const lines = input.split('\n')
+  const blocks: MarkdownBlock[] = []
+  let cursor = 0
+  let paragraphBuffer: string[] = []
+
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) return
+    blocks.push({
+      kind: 'paragraph',
+      text: paragraphBuffer.join('\n'),
+    })
+    paragraphBuffer = []
+  }
+
+  while (cursor < lines.length) {
+    const line = lines[cursor]
+    const marker = parseListMarker(line)
+
+    if (marker) {
+      flushParagraph()
+      const [listBlock, nextCursor] = parseListBlock(lines, cursor)
+      blocks.push(listBlock)
+      cursor = nextCursor
+      continue
+    }
+
+    if (line.trim().length === 0) {
+      flushParagraph()
+      cursor += 1
+      continue
+    }
+
+    paragraphBuffer.push(line)
+    cursor += 1
+  }
+
+  flushParagraph()
+  return blocks
+}
+
+const renderInline = (input: string, citations: Citation[] | undefined, keyPrefix: string): ReactNode[] => {
   const tokens = tokenizeEmphasis(input)
 
   return tokens.map((token, index) => {
     if (token.kind === 'bold') {
       return (
-        <strong key={`b-${index}`} className="font-semibold text-slate-800">
+        <strong key={`${keyPrefix}-b-${index}`} className="font-semibold text-slate-800">
           {token.value}
         </strong>
       )
@@ -111,7 +271,7 @@ export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): R
 
     if (token.kind === 'italic') {
       return (
-        <em key={`i-${index}`} className="italic">
+        <em key={`${keyPrefix}-i-${index}`} className="italic">
           {token.value}
         </em>
       )
@@ -122,24 +282,72 @@ export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): R
       if (citation?.url) {
         return (
           <a
-            key={`c-${index}`}
+            key={`${keyPrefix}-c-${index}`}
             href={citation.url}
             target="_blank"
             rel="noopener noreferrer"
             title={citation.title}
-            className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+            className="cursor-pointer text-blue-600 hover:text-blue-800 hover:underline"
           >
             <sup>[{token.index}]</sup>
           </a>
         )
       }
+
       return (
-        <sup key={`c-${index}`} className="text-blue-600 cursor-default">
+        <sup key={`${keyPrefix}-c-${index}`} className="cursor-default text-blue-600">
           [{token.index}]
         </sup>
       )
     }
 
-    return <span key={`t-${index}`}>{token.value}</span>
+    return <span key={`${keyPrefix}-t-${index}`}>{token.value}</span>
+  })
+}
+
+const renderListBlock = (
+  block: MarkdownListBlock,
+  citations: Citation[] | undefined,
+  keyPrefix: string
+): ReactNode => {
+  const ListTag = block.listType === 'ordered' ? 'ol' : 'ul'
+  const listClassName = block.listType === 'ordered' ? 'list-decimal pl-5' : 'list-disc pl-5'
+
+  return (
+    <ListTag key={`${keyPrefix}-list`} className={`${listClassName} space-y-1`}>
+      {block.items.map((item, itemIndex) => (
+        <li key={`${keyPrefix}-item-${itemIndex}`}>
+          <span className="whitespace-pre-wrap break-words">
+            {renderInline(item.text, citations, `${keyPrefix}-item-${itemIndex}`)}
+          </span>
+          {item.children.map((child, childIndex) => (
+            <div key={`${keyPrefix}-child-${itemIndex}-${childIndex}`} className="mt-1">
+              {renderListBlock(child, citations, `${keyPrefix}-child-${itemIndex}-${childIndex}`)}
+            </div>
+          ))}
+        </li>
+      ))}
+    </ListTag>
+  )
+}
+
+export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): ReactNode[] => {
+  const blocks = parseMarkdownBlocks(input)
+
+  if (blocks.length === 1 && blocks[0].kind === 'paragraph') {
+    return renderInline(blocks[0].text, citations, 'root-inline')
+  }
+
+  return blocks.map((block, blockIndex) => {
+    const keyPrefix = `block-${blockIndex}`
+    if (block.kind === 'list') {
+      return renderListBlock(block, citations, keyPrefix)
+    }
+
+    return (
+      <p key={`${keyPrefix}-paragraph`} className="m-0 whitespace-pre-wrap break-words">
+        {renderInline(block.text, citations, keyPrefix)}
+      </p>
+    )
   })
 }

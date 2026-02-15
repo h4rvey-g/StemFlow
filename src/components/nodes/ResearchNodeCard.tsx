@@ -443,12 +443,12 @@ export function ResearchNodeCard({
         />
       ) : (
         <div className="space-y-1">
-          <p
+          <div
             className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700' : 'text-slate-400'}`}
             style={isTextCollapsed ? COLLAPSED_TEXT_STYLE : undefined}
           >
             {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
-          </p>
+          </div>
           {shouldOfferTextToggle ? (
             <button
               type="button"

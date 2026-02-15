@@ -77,6 +77,11 @@ const RATING_LETTER_GRADES: Record<string, number> = {
 const RATING_KEYS = ['rating', 'score', 'stars', 'star', 'grade'] as const
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
+const MAX_AI_REQUEST_ATTEMPTS = 3
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504])
+
+const isRetryableStatus = (status: number): boolean =>
+  status >= 500 || RETRYABLE_STATUS_CODES.has(status)
 
 const inferProvider = (state: Awaited<ReturnType<typeof loadApiKeys>>): AiProvider | null => {
   if (state.provider) return state.provider
@@ -262,38 +267,34 @@ const recoverGrade = async (
 ): Promise<number | null> => {
   const promptSettings = loadPromptSettings()
 
-  const response = await fetch(`/api/ai/${settings.provider}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      baseUrl: settings.baseUrl,
-      messages: [
-        {
-          role: 'system',
-          content: promptSettings.ratingExtractionSystemPrompt,
-        },
-        {
-          role: 'user',
-          content: interpolatePromptTemplate(promptSettings.ratingExtractionUserPromptTemplate, {
-            text,
-          }),
-        },
-      ],
-      stream: false,
-      temperature: 0,
-    }),
-  })
-
-  if (!response.ok) {
+  const response = await requestAiResponseWithRetry(settings.provider, {
+    apiKey: settings.apiKey,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    messages: [
+      {
+        role: 'system',
+        content: promptSettings.ratingExtractionSystemPrompt,
+      },
+      {
+        role: 'user',
+        content: interpolatePromptTemplate(promptSettings.ratingExtractionUserPromptTemplate, {
+          text,
+        }),
+      },
+    ],
+    stream: false,
+    temperature: 0,
+  }).catch((error) => {
     console.warn('[gradeNode] Recovery request failed', {
       provider: settings.provider,
       model: settings.model,
-      status: response.status,
+      error,
     })
     return null
-  }
+  })
+
+  if (!response) return null
 
   const json = (await response.json()) as { text?: string; finishReason?: string }
   const candidate = typeof json.text === 'string' ? json.text : ''
@@ -322,43 +323,39 @@ const retryDirectGrade = async (
   node: Pick<NodeSuggestionContext, 'id' | 'type' | 'content'>,
   goal: string,
 ): Promise<number | null> => {
-  const response = await fetch(`/api/ai/${settings.provider}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      baseUrl: settings.baseUrl,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Return exactly one integer from 1 to 5 for scientific node quality. No JSON, no markdown, no explanation.',
-        },
-        {
-          role: 'user',
-          content: [
-            `Goal: ${goal}`,
-            `Node ID: ${node.id}`,
-            `Node type: ${node.type}`,
-            `Node content: ${node.content}`,
-            'Output only one digit (1,2,3,4,5).',
-          ].join('\n'),
-        },
-      ],
-      stream: false,
-      temperature: 0,
-    }),
-  })
-
-  if (!response.ok) {
+  const response = await requestAiResponseWithRetry(settings.provider, {
+    apiKey: settings.apiKey,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'Return exactly one integer from 1 to 5 for scientific node quality. No JSON, no markdown, no explanation.',
+      },
+      {
+        role: 'user',
+        content: [
+          `Goal: ${goal}`,
+          `Node ID: ${node.id}`,
+          `Node type: ${node.type}`,
+          `Node content: ${node.content}`,
+          'Output only one digit (1,2,3,4,5).',
+        ].join('\n'),
+      },
+    ],
+    stream: false,
+    temperature: 0,
+  }).catch((error) => {
     console.warn('[gradeNode] Direct retry request failed', {
       provider: settings.provider,
       model: settings.model,
-      status: response.status,
+      error,
     })
     return null
-  }
+  })
+
+  if (!response) return null
 
   const json = (await response.json()) as { text?: string; finishReason?: string }
   const candidate = typeof json.text === 'string' ? json.text : ''
@@ -389,6 +386,44 @@ const readErrorMessage = async (response: Response): Promise<string> => {
   return text || `Vision request failed with status ${response.status}`
 }
 
+const requestAiResponseWithRetry = async (
+  provider: AiProvider,
+  payload: Record<string, unknown>
+): Promise<Response> => {
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= MAX_AI_REQUEST_ATTEMPTS; attempt += 1) {
+    const response = await fetch(`/api/ai/${provider}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch((caught) => {
+      lastError = caught
+      return null
+    })
+
+    if (!response) {
+      if (attempt < MAX_AI_REQUEST_ATTEMPTS) {
+        continue
+      }
+      break
+    }
+
+    if (response.ok) {
+      return response
+    }
+
+    if (attempt < MAX_AI_REQUEST_ATTEMPTS && isRetryableStatus(response.status)) {
+      continue
+    }
+
+    throw new Error(await readErrorMessage(response))
+  }
+
+  const message = lastError instanceof Error ? lastError.message : 'AI request failed'
+  throw new Error(message)
+}
+
 export const describeImageWithVision = async (
   imageDataUrl: string,
   contextText?: string
@@ -417,23 +452,15 @@ export const describeImageWithVision = async (
     },
   ]
 
-  const response = await fetch(`/api/ai/${settings.provider}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      baseUrl: settings.baseUrl,
-      messages,
-      stream: false,
-      temperature: 0.2,
-      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
-    }),
+  const response = await requestAiResponseWithRetry(settings.provider, {
+    apiKey: settings.apiKey,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    messages,
+    stream: false,
+    temperature: 0.2,
+    ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
   })
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
-  }
 
   const json = (await response.json()) as { text?: string }
   const description = typeof json.text === 'string' ? json.text.trim() : ''
@@ -480,23 +507,15 @@ export const gradeNode = async (
     contentLength: node.content.length,
   })
 
-  const response = await fetch(`/api/ai/${settings.provider}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      apiKey: settings.apiKey,
-      model: settings.model,
-      baseUrl: settings.baseUrl,
-      messages,
-      stream: false,
-      temperature: 0,
-      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
-    }),
+  const response = await requestAiResponseWithRetry(settings.provider, {
+    apiKey: settings.apiKey,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    messages,
+    stream: false,
+    temperature: 0,
+    ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
   })
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
-  }
 
   const json = (await response.json()) as { text?: string; finishReason?: string }
   const text = typeof json.text === 'string' ? json.text : ''
@@ -951,23 +970,15 @@ const requestAiText = async (
   temperature: number,
   maxTokens?: number
 ): Promise<{ text: string; finishReason: string; responseModel: string }> => {
-  const response = await fetch(`/api/ai/${provider}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      apiKey,
-      model: modelName,
-      baseUrl: baseUrl || undefined,
-      messages,
-      stream: false,
-      temperature,
-      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
-    }),
+  const response = await requestAiResponseWithRetry(provider, {
+    apiKey,
+    model: modelName,
+    baseUrl: baseUrl || undefined,
+    messages,
+    stream: false,
+    temperature,
+    ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
   })
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response))
-  }
 
   const json = (await response.json()) as {
     text?: string
@@ -1172,11 +1183,18 @@ const buildPrompt = (
   const currentType = ancestry[ancestry.length - 1]?.type ?? 'UNKNOWN'
   const expectedType = expectedNextType ?? 'UNKNOWN'
 
+  const generationPromptTemplate =
+    expectedNextType === 'MECHANISM'
+      ? promptSettings.nextStepsObservationToMechanismPromptTemplate
+      : expectedNextType === 'VALIDATION'
+        ? promptSettings.nextStepsMechanismToValidationPromptTemplate
+        : promptSettings.nextStepsObservationToMechanismPromptTemplate
+
   const experimentalConditions = formatExperimentalConditionsForPrompt(
     useStore.getState().experimentalConditions
   )
 
-  return interpolatePromptTemplate(promptSettings.nextStepsPromptTemplate, {
+  return interpolatePromptTemplate(generationPromptTemplate, {
     goal,
     context,
     currentType,

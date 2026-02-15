@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAi } from '@/hooks/useAi'
 import * as apiKeys from '@/lib/api-keys'
+import { NODE_HORIZONTAL_STEP } from '@/lib/node-layout'
 import { useAiStore } from '@/stores/useAiStore'
 import { useStore } from '@/stores/useStore'
 import type { OMVEdge, OMVNode } from '@/types/nodes'
@@ -10,8 +11,6 @@ import type { OMVEdge, OMVNode } from '@/types/nodes'
 vi.mock('@/lib/api-keys')
 
 const NODE_ID = 'node-1'
-const POSITION_OFFSET = { x: 280, y: 0 }
-
 const streamFromStrings = (chunks: string[]) => {
   const encoder = new TextEncoder()
   return new ReadableStream<Uint8Array>({
@@ -108,8 +107,8 @@ describe('useAi', () => {
         type: 'OBSERVATION',
         data: { text_content: 'Result' },
         position: {
-          x: 100 + POSITION_OFFSET.x,
-          y: 100 + POSITION_OFFSET.y,
+          x: 100 + NODE_HORIZONTAL_STEP,
+          y: 100,
         },
       })
     )
@@ -144,6 +143,42 @@ describe('useAi', () => {
     expect(createdNode.type).toBe('MECHANISM')
   })
 
+  it('suggest-mechanism creates VALIDATION node when source is mechanism', async () => {
+    useStore.setState({
+      nodes: [
+        {
+          id: NODE_ID,
+          type: 'MECHANISM',
+          data: { text_content: 'Test mechanism' },
+          position: { x: 100, y: 100 },
+        },
+      ],
+      edges: [],
+      addNode: mockAddNode,
+      addEdge: mockAddEdge,
+    })
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        streamFromStrings([
+          'data: {"choices":[{"delta":{"content":"Validation"}}]}\n',
+          'data: [DONE]\n',
+        ]),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      )
+    )
+
+    const { result } = renderHook(() => useAi(NODE_ID))
+
+    await act(async () => {
+      await result.current.executeAction('suggest-mechanism')
+    })
+
+    expect(mockAddNode).toHaveBeenCalledTimes(1)
+    const createdNode = mockAddNode.mock.calls[0]?.[0]
+    expect(createdNode.type).toBe('VALIDATION')
+  })
+
   it('cancel aborts and stops loading without node creation', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
       return new Promise((_resolve, reject) => {
@@ -169,5 +204,49 @@ describe('useAi', () => {
 
     expect(useAiStore.getState().isLoading[NODE_ID]).toBe(false)
     expect(mockAddNode).not.toHaveBeenCalled()
+  })
+
+  it('retries failed AI requests up to 3 times and succeeds', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('Temporary network failure 1'))
+      .mockRejectedValueOnce(new Error('Temporary network failure 2'))
+      .mockResolvedValueOnce(
+        new Response(
+          streamFromStrings([
+            'data: {"choices":[{"delta":{"content":"Recovered"}}]}\n',
+            'data: [DONE]\n',
+          ]),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+      )
+
+    const { result } = renderHook(() => useAi(NODE_ID))
+
+    await act(async () => {
+      await result.current.executeAction('summarize')
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(useAiStore.getState().streamingText[NODE_ID]).toBe('Recovered')
+    expect(useAiStore.getState().error[NODE_ID]).toBeNull()
+  })
+
+  it('stops after 3 failed retries and sets final error', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('Temporary network failure 1'))
+      .mockRejectedValueOnce(new Error('Temporary network failure 2'))
+      .mockRejectedValueOnce(new Error('Temporary network failure 3'))
+
+    const { result } = renderHook(() => useAi(NODE_ID))
+
+    await act(async () => {
+      await result.current.executeAction('summarize')
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(useAiStore.getState().isLoading[NODE_ID]).toBe(false)
+    expect(useAiStore.getState().error[NODE_ID]?.message).toBe('Temporary network failure 3')
   })
 })

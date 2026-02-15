@@ -1,4 +1,5 @@
-import nodeGenerationPromptTemplate from '@/prompts/node-generation-prompt.md?raw'
+import observationToMechanismGenerationPromptTemplate from '@/prompts/node-generation-observation-to-mechanism-prompt.md?raw'
+import mechanismToValidationGenerationPromptTemplate from '@/prompts/node-generation-mechanism-to-validation-prompt.md?raw'
 
 export interface PromptSettings {
   visionSystemPrompt: string
@@ -17,11 +18,13 @@ export interface PromptSettings {
   nextStepsNoGradedNodesText: string
   nextStepsGlobalGoalFallback: string
   nextStepsAncestryContextFallback: string
-  nextStepsPromptTemplate: string
+  nextStepsObservationToMechanismPromptTemplate: string
+  nextStepsMechanismToValidationPromptTemplate: string
   useAiSystemPrompt: string
   useAiUserMessageTemplate: string
   useAiActionSummarizeInstruction: string
-  useAiActionSuggestMechanismInstruction: string
+  useAiActionSuggestMechanismFromObservationInstruction: string
+  useAiActionSuggestValidationFromMechanismInstruction: string
   useAiActionCritiqueInstruction: string
   useAiActionExpandInstruction: string
   useAiActionQuestionsInstruction: string
@@ -66,12 +69,17 @@ export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   nextStepsNoGradedNodesText: 'No graded nodes were provided.',
   nextStepsGlobalGoalFallback: 'No global goal provided.',
   nextStepsAncestryContextFallback: 'No ancestry context provided.',
-  nextStepsPromptTemplate: nodeGenerationPromptTemplate.trim(),
+  nextStepsObservationToMechanismPromptTemplate:
+    observationToMechanismGenerationPromptTemplate.trim(),
+  nextStepsMechanismToValidationPromptTemplate:
+    mechanismToValidationGenerationPromptTemplate.trim(),
   useAiSystemPrompt: 'You are assisting with scientific research using the OMV framework.',
   useAiUserMessageTemplate: '{{instruction}}\n\n{{context}}',
   useAiActionSummarizeInstruction: 'Summarize the context into a concise observation.',
-  useAiActionSuggestMechanismInstruction:
+  useAiActionSuggestMechanismFromObservationInstruction:
     'Suggest a plausible mechanism based on the context.',
+  useAiActionSuggestValidationFromMechanismInstruction:
+    'Suggest a validation experiment to test this mechanism based on the context.',
   useAiActionCritiqueInstruction: 'Critique the reasoning gaps or weaknesses in the context.',
   useAiActionExpandInstruction: 'Expand the context with additional relevant details.',
   useAiActionQuestionsInstruction:
@@ -186,8 +194,15 @@ export const PROMPT_SETTINGS_FIELDS: PromptSettingsField[] = [
     rows: 2,
   },
   {
-    key: 'nextStepsPromptTemplate',
-    label: 'Next Steps Master Template',
+    key: 'nextStepsObservationToMechanismPromptTemplate',
+    label: 'Next Steps Template (Observation→Mechanism)',
+    description:
+      'Main template for step generation with placeholders: `{{goal}}`, `{{experimentalConditions}}`, `{{context}}`, `{{currentType}}`, `{{expectedType}}`, `{{nodesContext}}`.',
+    rows: 12,
+  },
+  {
+    key: 'nextStepsMechanismToValidationPromptTemplate',
+    label: 'Next Steps Template (Mechanism→Validation)',
     description:
       'Main template for step generation with placeholders: `{{goal}}`, `{{experimentalConditions}}`, `{{context}}`, `{{currentType}}`, `{{expectedType}}`, `{{nodesContext}}`.',
     rows: 12,
@@ -211,9 +226,15 @@ export const PROMPT_SETTINGS_FIELDS: PromptSettingsField[] = [
     rows: 2,
   },
   {
-    key: 'useAiActionSuggestMechanismInstruction',
-    label: 'Node AI Suggest Mechanism Instruction',
-    description: 'Instruction text for suggest-mechanism action.',
+    key: 'useAiActionSuggestMechanismFromObservationInstruction',
+    label: 'Node AI Suggest Mechanism (Observation→Mechanism)',
+    description: 'Instruction text for generating a mechanism from an observation node.',
+    rows: 2,
+  },
+  {
+    key: 'useAiActionSuggestValidationFromMechanismInstruction',
+    label: 'Node AI Suggest Validation (Mechanism→Validation)',
+    description: 'Instruction text for generating a validation from a mechanism node.',
     rows: 2,
   },
   {
@@ -268,6 +289,24 @@ export const normalizePromptSettings = (value: unknown): PromptSettings => {
     const candidate = value[key]
     if (typeof candidate === 'string') {
       normalized[key] = candidate
+    }
+  }
+
+  const legacySuggestMechanismInstruction = value['useAiActionSuggestMechanismInstruction']
+  if (
+    typeof legacySuggestMechanismInstruction === 'string' &&
+    typeof value['useAiActionSuggestMechanismFromObservationInstruction'] !== 'string'
+  ) {
+    normalized.useAiActionSuggestMechanismFromObservationInstruction = legacySuggestMechanismInstruction
+  }
+
+  const legacyNextStepsTemplate = value['nextStepsPromptTemplate']
+  if (typeof legacyNextStepsTemplate === 'string') {
+    if (typeof value['nextStepsObservationToMechanismPromptTemplate'] !== 'string') {
+      normalized.nextStepsObservationToMechanismPromptTemplate = legacyNextStepsTemplate
+    }
+    if (typeof value['nextStepsMechanismToValidationPromptTemplate'] !== 'string') {
+      normalized.nextStepsMechanismToValidationPromptTemplate = legacyNextStepsTemplate
     }
   }
 

@@ -37,7 +37,7 @@ vi.mock('@/stores/useStore', () => ({
 }))
 
 describe('NodePopover', () => {
-  it('shows Suggest Mechanism only for Observation nodes', async () => {
+  it('shows Suggest Mechanism for Observation and Suggest Validation for Mechanism', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
     ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
@@ -66,7 +66,7 @@ describe('NodePopover', () => {
       />
     )
 
-    expect(screen.queryByText('Suggest Mechanism')).toBeNull()
+    expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
   })
 
   it('clicking an action calls executeAction', async () => {

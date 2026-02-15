@@ -208,16 +208,33 @@ describe('SettingsModal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Prompt Settings' }))
 
-    const nodeGenerationPrompt = screen.getByLabelText('Node Generation Prompt')
-    await userEvent.clear(nodeGenerationPrompt)
-    await userEvent.type(nodeGenerationPrompt, 'Custom node generation prompt')
+    const observationToMechanismGenerationPrompt = screen.getByLabelText(
+      'Generation Prompt (Observation → Mechanism)'
+    )
+    await userEvent.clear(observationToMechanismGenerationPrompt)
+    await userEvent.type(
+      observationToMechanismGenerationPrompt,
+      'Custom observation to mechanism generation prompt'
+    )
+
+    const mechanismToValidationGenerationPrompt = screen.getByLabelText(
+      'Generation Prompt (Mechanism → Validation)'
+    )
+    await userEvent.clear(mechanismToValidationGenerationPrompt)
+    await userEvent.type(
+      mechanismToValidationGenerationPrompt,
+      'Custom mechanism to validation generation prompt'
+    )
 
     await userEvent.click(screen.getByRole('button', { name: 'Save Prompt Settings' }))
 
     expect(onClose).toHaveBeenCalled()
     expect(savePromptSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        nextStepsPromptTemplate: 'Custom node generation prompt',
+        nextStepsObservationToMechanismPromptTemplate:
+          'Custom observation to mechanism generation prompt',
+        nextStepsMechanismToValidationPromptTemplate:
+          'Custom mechanism to validation generation prompt',
       })
     )
   })

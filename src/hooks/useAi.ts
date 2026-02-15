@@ -9,17 +9,42 @@ import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-sett
 import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
 import { useAiStore } from '@/stores/useAiStore'
 import { useStore, formatExperimentalConditionsForPrompt } from '@/stores/useStore'
-import type { OMVEdge, OMVNode } from '@/types/nodes'
+import type { NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
+const MAX_AI_REQUEST_ATTEMPTS = 3
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504])
 
-const getActionInstruction = (action: AiAction): string => {
+const toStatusCode = (code?: string): number | null => {
+  if (!code) return null
+  const parsed = Number(code)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const isRetryableError = (error: unknown): boolean => {
+  if (error instanceof AiErrorClass) {
+    const statusCode = toStatusCode(error.code)
+    if (statusCode !== null) {
+      if (statusCode >= 500) return true
+      return RETRYABLE_STATUS_CODES.has(statusCode)
+    }
+  }
+
+  return true
+}
+
+const getActionInstruction = (action: AiAction, sourceType: NodeType | null): string => {
   const promptSettings = loadPromptSettings()
 
   if (action === 'summarize') return promptSettings.useAiActionSummarizeInstruction
-  if (action === 'suggest-mechanism') return promptSettings.useAiActionSuggestMechanismInstruction
+  if (action === 'suggest-mechanism') {
+    if (sourceType === 'MECHANISM') {
+      return promptSettings.useAiActionSuggestValidationFromMechanismInstruction
+    }
+    return promptSettings.useAiActionSuggestMechanismFromObservationInstruction
+  }
   if (action === 'critique') return promptSettings.useAiActionCritiqueInstruction
   if (action === 'expand') return promptSettings.useAiActionExpandInstruction
   return promptSettings.useAiActionQuestionsInstruction
@@ -47,9 +72,14 @@ const toModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKe
   return keys.geminiModel ?? DEFAULT_GEMINI_MODEL
 }
 
-const buildMessages = (context: string, action: AiAction, extraContext?: string): AiMessage[] => {
+const buildMessages = (
+  context: string,
+  action: AiAction,
+  sourceType: NodeType | null,
+  extraContext?: string
+): AiMessage[] => {
   const promptSettings = loadPromptSettings()
-  const instruction = getActionInstruction(action)
+  const instruction = getActionInstruction(action, sourceType)
   const conditions = formatExperimentalConditionsForPrompt(
     useStore.getState().experimentalConditions
   )
@@ -75,7 +105,14 @@ const getNodeById = (nodes: OMVNode[], nodeId: string): OMVNode | null =>
   nodes.find((node) => node.id === nodeId) ?? null
 
 const createNodeFromResult = (sourceNode: OMVNode, action: AiAction, text: string): OMVNode => {
-  const type = action === 'suggest-mechanism' ? 'MECHANISM' : sourceNode.type
+  const type =
+    action === 'suggest-mechanism'
+      ? sourceNode.type === 'MECHANISM'
+        ? 'VALIDATION'
+        : sourceNode.type === 'OBSERVATION'
+          ? 'MECHANISM'
+          : sourceNode.type
+      : sourceNode.type
   const position = createRightwardPosition(sourceNode.position)
 
   return {
@@ -124,80 +161,94 @@ export function useAi(nodeId: string) {
     const storeState = useStore.getState()
     const nodesSnapshot = storeState.nodes
     const edgesSnapshot = storeState.edges
+    const sourceNode = getNodeById(nodesSnapshot, nodeId)
+    const sourceType = sourceNode?.type ?? null
     const ancestry = getNodeAncestry(nodeId, nodesSnapshot, edgesSnapshot)
     const formatted = formatAncestryForPrompt(ancestry)
-    const messages = buildMessages(formatted, action, context)
+    const messages = buildMessages(formatted, action, sourceType, context)
 
-    startStreaming(nodeId, action)
+    let lastError: unknown = null
 
-    const controller = new AbortController()
-    abortRef.current = controller
+    for (let attempt = 1; attempt <= MAX_AI_REQUEST_ATTEMPTS; attempt += 1) {
+      startStreaming(nodeId, action)
 
-    let aggregated = ''
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    try {
-      const response = await fetch(`/api/ai/${provider}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey,
-          model,
-          messages,
-          stream: true,
-          ...(provider === 'openai' || provider === 'openai-compatible'
-            ? { baseUrl: keys.openaiBaseUrl ?? undefined }
-            : {}),
-        }),
-        signal: controller.signal,
-      })
+      let aggregated = ''
 
-      if (!response.ok) {
-        throw new AiErrorClass('AI request failed', provider, String(response.status))
-      }
+      try {
+        const response = await fetch(`/api/ai/${provider}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiKey,
+            model,
+            messages,
+            stream: true,
+            ...(provider === 'openai' || provider === 'openai-compatible'
+              ? { baseUrl: keys.openaiBaseUrl ?? undefined }
+              : {}),
+          }),
+          signal: controller.signal,
+        })
 
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new AiErrorClass('AI stream unavailable', provider)
-      }
+        if (!response.ok) {
+          throw new AiErrorClass('AI request failed', provider, String(response.status))
+        }
 
-      const parser =
-        provider === 'gemini'
-          ? parseGeminiStream
-          : provider === 'anthropic'
-            ? parseAnthropicStream
-            : parseOpenAIStream
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new AiErrorClass('AI stream unavailable', provider)
+        }
 
-      for await (const chunk of parser(reader)) {
-        if (chunk.done) break
-        aggregated += chunk.text
-        appendText(nodeId, chunk.text)
-      }
+        const parser =
+          provider === 'gemini'
+            ? parseGeminiStream
+            : provider === 'anthropic'
+              ? parseAnthropicStream
+              : parseOpenAIStream
 
-      finishStreaming(nodeId)
+        for await (const chunk of parser(reader)) {
+          if (chunk.done) break
+          aggregated += chunk.text
+          appendText(nodeId, chunk.text)
+        }
 
-      const finalText = aggregated.trim()
-      if (!finalText) return
-      if (!createNodeOnComplete) return
-
-      const sourceNode = getNodeById(nodesSnapshot, nodeId)
-      if (!sourceNode) return
-
-      const newNode = createNodeFromResult(sourceNode, action, finalText)
-      useStore.getState().addNode(newNode)
-      useStore.getState().addEdge(createEdge(nodeId, newNode.id))
-    } catch (caught) {
-      if (controller.signal.aborted) {
         finishStreaming(nodeId)
-        return
-      }
 
-      const message = caught instanceof Error ? caught.message : 'AI request failed'
-      const aiError: AiError =
-        caught instanceof AiErrorClass ? caught : new AiErrorClass(message, provider)
-      setError(nodeId, aiError)
-    } finally {
-      abortRef.current = null
+        const finalText = aggregated.trim()
+        if (!finalText) return
+        if (!createNodeOnComplete) return
+
+        if (!sourceNode) return
+
+        const newNode = createNodeFromResult(sourceNode, action, finalText)
+        useStore.getState().addNode(newNode)
+        useStore.getState().addEdge(createEdge(nodeId, newNode.id))
+        return
+      } catch (caught) {
+        if (controller.signal.aborted) {
+          finishStreaming(nodeId)
+          return
+        }
+
+        lastError = caught
+        const shouldRetry = attempt < MAX_AI_REQUEST_ATTEMPTS && isRetryableError(caught)
+        if (shouldRetry) {
+          continue
+        }
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null
+        }
+      }
     }
+
+    const message = lastError instanceof Error ? lastError.message : 'AI request failed'
+    const aiError: AiError =
+      lastError instanceof AiErrorClass ? lastError : new AiErrorClass(message, provider)
+    setError(nodeId, aiError)
   }, [appendText, finishStreaming, nodeId, setError, startStreaming])
 
   const cancel = useCallback(() => {

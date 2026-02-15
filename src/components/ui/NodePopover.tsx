@@ -56,7 +56,14 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     if (!text) return
 
     const sourceType: Exclude<NodeType, 'GHOST'> = source.type === 'GHOST' ? nodeType : source.type
-    const nextType: Exclude<NodeType, 'GHOST'> = activeAction === 'suggest-mechanism' ? 'MECHANISM' : sourceType
+    const nextType: Exclude<NodeType, 'GHOST'> =
+      activeAction === 'suggest-mechanism'
+        ? sourceType === 'MECHANISM'
+          ? 'VALIDATION'
+          : sourceType === 'OBSERVATION'
+            ? 'MECHANISM'
+            : sourceType
+        : sourceType
     const newNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const position = createRightwardPosition(source.position)
 
@@ -79,7 +86,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     onClose()
   }
 
-  const showSuggest = nodeType === 'OBSERVATION'
+  const showSuggest = nodeType === 'OBSERVATION' || nodeType === 'MECHANISM'
 
   return createPortal(
     <div
@@ -109,7 +116,13 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {ACTIONS.filter((a) => (a.action === 'suggest-mechanism' ? showSuggest : true)).map((item) => (
+          {ACTIONS.filter((a) => (a.action === 'suggest-mechanism' ? showSuggest : true)).map((item) => {
+            const label =
+              item.action === 'suggest-mechanism' && nodeType === 'MECHANISM'
+                ? 'Suggest Validation'
+                : item.label
+
+            return (
             <button
               key={item.action}
               type="button"
@@ -117,9 +130,10 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
               onClick={() => runAction(item.action)}
               disabled={isLoading}
             >
-              {item.label}
+              {label}
             </button>
-          ))}
+            )
+          })}
         </div>
 
         <div className="mt-3">

@@ -154,14 +154,27 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     setErrorMessage(result.error || 'Failed to save prompt settings');
   };
 
-  const handleNodeGenerationPromptChange = (value: string) => {
-    setPromptSettings((prev) => ({ ...prev, nextStepsPromptTemplate: value }));
+  const handleObservationToMechanismGenerationPromptChange = (value: string) => {
+    setPromptSettings((prev) => ({
+      ...prev,
+      nextStepsObservationToMechanismPromptTemplate: value,
+    }));
+  };
+
+  const handleMechanismToValidationGenerationPromptChange = (value: string) => {
+    setPromptSettings((prev) => ({
+      ...prev,
+      nextStepsMechanismToValidationPromptTemplate: value,
+    }));
   };
 
   const handleResetPromptDefaults = () => {
     setPromptSettings((prev) => ({
       ...prev,
-      nextStepsPromptTemplate: DEFAULT_PROMPT_SETTINGS.nextStepsPromptTemplate,
+      nextStepsObservationToMechanismPromptTemplate:
+        DEFAULT_PROMPT_SETTINGS.nextStepsObservationToMechanismPromptTemplate,
+      nextStepsMechanismToValidationPromptTemplate:
+        DEFAULT_PROMPT_SETTINGS.nextStepsMechanismToValidationPromptTemplate,
     }));
   };
 
@@ -311,10 +324,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-sm"
       data-testid="settings-modal"
     >
-      <div className="w-full max-w-4xl rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
           <button
@@ -326,11 +339,11 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         </div>
 
         {isLoading ? (
-          <div className="flex justify-center py-10">
+          <div className="flex flex-1 items-center justify-center py-10">
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto pr-1">
             <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1 dark:bg-gray-700/60">
               <button
                 type="button"
@@ -507,7 +520,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-gray-600 dark:text-gray-300">
-                    Only node generation prompt is editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{experimentalConditions}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
+                    Node generation prompts are editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{experimentalConditions}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
                   </p>
                   <button
                     type="button"
@@ -518,17 +531,38 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   </button>
                 </div>
                 <div>
-                  <label htmlFor="prompt-next-steps" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Node Generation Prompt
+                  <label
+                    htmlFor="prompt-next-steps-observation-mechanism"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    Generation Prompt (Observation → Mechanism)
                   </label>
                   <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                    Prompt template used to generate the next 1-3 OMV nodes.
+                    Template used when generating from observation nodes.
                   </p>
                   <textarea
-                    id="prompt-next-steps"
+                    id="prompt-next-steps-observation-mechanism"
                     rows={14}
-                    value={promptSettings.nextStepsPromptTemplate}
-                    onChange={(e) => handleNodeGenerationPromptChange(e.target.value)}
+                    value={promptSettings.nextStepsObservationToMechanismPromptTemplate}
+                    onChange={(e) => handleObservationToMechanismGenerationPromptChange(e.target.value)}
+                    className="w-full resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="prompt-next-steps-mechanism-validation"
+                    className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    Generation Prompt (Mechanism → Validation)
+                  </label>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    Template used when generating from mechanism nodes.
+                  </p>
+                  <textarea
+                    id="prompt-next-steps-mechanism-validation"
+                    rows={14}
+                    value={promptSettings.nextStepsMechanismToValidationPromptTemplate}
+                    onChange={(e) => handleMechanismToValidationGenerationPromptChange(e.target.value)}
                     className="w-full resize-y rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
