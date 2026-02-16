@@ -1,4 +1,5 @@
-import React, { memo, useCallback, useState } from 'react'
+import React, { memo, useCallback, useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Handle, Position, NodeProps } from 'reactflow'
 
 import { renderMarkdownEmphasis } from '@/lib/markdown-emphasis'
@@ -11,13 +12,8 @@ const typeColors: Record<string, string> = {
   VALIDATION: 'text-emerald-700',
 }
 
-const typeLabels: Record<string, string> = {
-  OBSERVATION: 'SUGGESTED OBSERVATION',
-  MECHANISM: 'SUGGESTED MECHANISM',
-  VALIDATION: 'SUGGESTED VALIDATION',
-}
-
 const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="nodrag nopan mt-2 border-t border-slate-200 pt-2">
@@ -27,7 +23,7 @@ const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
         onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
       >
         <span className="transition-transform" style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-        References ({citations.length})
+        {t('nodes.card.references', { count: citations.length })}
       </button>
       {expanded ? (
         <div className="mt-1">
@@ -47,6 +43,7 @@ const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
 }
 
 export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>) => {
+  const { t } = useTranslation()
   const { text_content, summary_title, suggestedType, ghostId, citations } = data
   const acceptGhostNode = useStore((s) => s.acceptGhostNode)
   const dismissGhostNode = useStore((s) => s.dismissGhostNode)
@@ -56,6 +53,15 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
   
   const colorClass = typeColors[suggestedType] || 'text-slate-700'
 
+  const typeLabel = useMemo(() => {
+    switch (suggestedType) {
+      case 'OBSERVATION': return t('nodes.ghost.suggestedObservation')
+      case 'MECHANISM': return t('nodes.ghost.suggestedMechanism')
+      case 'VALIDATION': return t('nodes.ghost.suggestedValidation')
+      default: return ''
+    }
+  }, [suggestedType, t])
+
   return (
     <div
       className={`w-[320px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80`}
@@ -64,7 +70,7 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
       <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
       
       <div className={`text-xs font-bold mb-1 ${colorClass}`}>
-        {typeLabels[suggestedType]}
+        {typeLabel}
       </div>
 
       {summary_title?.trim() ? (
@@ -85,16 +91,16 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
         <button
           onClick={handleAccept}
           className="flex-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs font-medium py-1 px-2 rounded transition-colors"
-          aria-label="Accept suggestion"
+          aria-label={t('nodes.ghost.acceptSuggestion')}
         >
-          Accept
+          {t('common.accept')}
         </button>
         <button
           onClick={handleDismiss}
           className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium py-1 px-2 rounded transition-colors"
-          aria-label="Dismiss suggestion"
+          aria-label={t('nodes.ghost.dismissSuggestion')}
         >
-          Dismiss
+          {t('common.dismiss')}
         </button>
       </div>
 

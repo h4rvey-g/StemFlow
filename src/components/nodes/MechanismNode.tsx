@@ -1,18 +1,22 @@
 import React, { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 
 import { ResearchNodeCard } from '@/components/nodes/ResearchNodeCard'
 import type { NodeData } from '@/types/nodes'
 
-export const MechanismNode = memo((props: NodeProps<NodeData>) => (
-  <ResearchNodeCard
-    {...props}
-    title="Mechanism"
-    placeholder="Describe the mechanism"
-    accentClassName="bg-violet-500"
-    focusRingClassName="focus:ring-violet-100"
-    nodeType="MECHANISM"
-  />
-))
+export const MechanismNode = memo((props: NodeProps<NodeData>) => {
+  const { t } = useTranslation()
+  return (
+    <ResearchNodeCard
+      {...props}
+      title={t('nodes.mechanism.title')}
+      placeholder={t('nodes.mechanism.placeholder')}
+      accentClassName="bg-violet-500"
+      focusRingClassName="focus:ring-violet-100"
+      nodeType="MECHANISM"
+    />
+  )
+})
 
 MechanismNode.displayName = 'MechanismNode'

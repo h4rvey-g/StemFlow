@@ -1,4 +1,5 @@
 import React, { memo, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import type { NodeProps } from 'reactflow'
 
@@ -11,6 +12,7 @@ interface MenuPosition {
 }
 
 export const ManualGroupNode = memo(({ data }: NodeProps<ManualGroupNodeData>) => {
+  const { t } = useTranslation()
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editLabel, setEditLabel] = useState(data.label)
@@ -73,7 +75,7 @@ export const ManualGroupNode = memo(({ data }: NodeProps<ManualGroupNodeData>) =
         ) : (
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-cyan-700">{data.label}</p>
         )}
-        <p className="text-[10px] text-cyan-600">{data.count} nodes</p>
+        <p className="text-[10px] text-cyan-600">{t('canvas.nodeCount', { count: data.count })}</p>
       </div>
       
       {menuPosition && createPortal(
@@ -91,14 +93,14 @@ export const ManualGroupNode = memo(({ data }: NodeProps<ManualGroupNodeData>) =
               onClick={handleRename}
               className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
             >
-              Rename
+              {t('common.rename')}
             </button>
             <button
               type="button"
               onClick={handleDelete}
               className="flex w-full items-center px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50"
             >
-              Ungroup
+              {t('canvas.ungroup')}
             </button>
           </div>
         </>,

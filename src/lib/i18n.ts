@@ -5,6 +5,7 @@ import zhCNTranslations from '@/locales/zh-CN.json'
 
 const LANGUAGE_STORAGE_KEY = 'stemflow:language'
 const SUPPORTED_LANGUAGES = ['en', 'zh-CN'] as const
+const DEFAULT_LANGUAGE: SupportedLanguage = 'en'
 
 type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]
 
@@ -27,7 +28,7 @@ const getStorage = (): Storage | null => {
 
 const getStoredLanguage = (): SupportedLanguage => {
   const storage = getStorage()
-  if (!storage) return 'en'
+  if (!storage) return DEFAULT_LANGUAGE
 
   try {
     const stored = storage.getItem(LANGUAGE_STORAGE_KEY)
@@ -35,10 +36,10 @@ const getStoredLanguage = (): SupportedLanguage => {
       return stored as SupportedLanguage
     }
   } catch {
-    return 'en'
+    return DEFAULT_LANGUAGE
   }
 
-  return 'en'
+  return DEFAULT_LANGUAGE
 }
 
 i18n
@@ -52,7 +53,7 @@ i18n
         translation: zhCNTranslations
       }
     },
-    lng: getStoredLanguage(),
+    lng: DEFAULT_LANGUAGE,
     fallbackLng: 'en',
     initImmediate: false,
     interpolation: {
@@ -61,5 +62,5 @@ i18n
   })
 
 export default i18n
-export { LANGUAGE_STORAGE_KEY, SUPPORTED_LANGUAGES }
+export { getStoredLanguage, LANGUAGE_STORAGE_KEY, SUPPORTED_LANGUAGES }
 export type { SupportedLanguage }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
 
@@ -73,9 +74,6 @@ const normalizeAttachments = (nodeData?: NodeData): NodeFileAttachment[] => {
   ]
 }
 
-const toErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : 'File processing failed'
-
 function StarIcon({ filled }: { filled: boolean }) {
   return (
     <svg viewBox="0 0 20 20" aria-hidden className="h-3.5 w-3.5">
@@ -89,6 +87,7 @@ function StarIcon({ filled }: { filled: boolean }) {
 }
 
 const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="nodrag nopan mt-2 border-t border-slate-200 pt-2">
@@ -98,7 +97,7 @@ const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
         onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
       >
         <span className="transition-transform" style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-        References ({citations.length})
+        {t('nodes.card.references', { count: citations.length })}
       </button>
       {expanded ? (
         <div className="mt-1">
@@ -128,6 +127,7 @@ export function ResearchNodeCard({
   focusRingClassName,
   nodeType,
 }: ResearchNodeCardProps) {
+  const { t } = useTranslation()
   const updateNode = useStore((state) => state.updateNode)
   const updateNodeData = useStore((state) => state.updateNodeData)
   const setNodeGrade = useStore((state) => state.setNodeGrade)
@@ -159,6 +159,10 @@ export function ResearchNodeCard({
   const attachments = normalizeAttachments(data)
   const citations = data?.citations ?? []
   const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
+
+  const getErrorMessage = useCallback((error: unknown) => {
+    return error instanceof Error ? error.message : t('nodes.card.fileProcessingFailed')
+  }, [t])
 
   const setAttachments = useCallback((nextAttachments: NodeFileAttachment[]) => {
     updateNodeData(id, {
@@ -359,7 +363,7 @@ export function ResearchNodeCard({
           currentAttachment = {
             ...currentAttachment,
             processingStatus: 'error',
-            processingError: toErrorMessage(error),
+            processingError: getErrorMessage(error),
           }
           upsertAttachment(currentAttachment)
         }
@@ -367,7 +371,7 @@ export function ResearchNodeCard({
     } finally {
       setIsUploading(false)
     }
-  }, [id, textContent, upsertAttachment, activeProjectId])
+  }, [id, textContent, upsertAttachment, activeProjectId, getErrorMessage])
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? Array.from(event.target.files) : []
@@ -387,7 +391,7 @@ export function ResearchNodeCard({
           ? {
               ...attachment,
               processingStatus: 'error',
-              processingError: toErrorMessage(error),
+              processingError: getErrorMessage(error),
             }
           : attachment
       )
@@ -397,7 +401,7 @@ export function ResearchNodeCard({
 
     const current = getCurrentAttachments()
     setAttachments(current.filter((attachment) => attachment.id !== attachmentId))
-  }, [getCurrentAttachments, setAttachments])
+  }, [getCurrentAttachments, setAttachments, getErrorMessage])
 
   const handleAiGrade = useCallback(async () => {
     if (isGradingWithAi) return
@@ -416,11 +420,11 @@ export function ResearchNodeCard({
       )
       setNodeGrade(id, nextGrade)
     } catch (error) {
-      setGradingError(error instanceof Error ? error.message : 'Failed to grade node with AI.')
+      setGradingError(error instanceof Error ? error.message : t('nodes.card.gradingFailed'))
     } finally {
       setIsGradingWithAi(false)
     }
-  }, [globalGoal, id, isGradingWithAi, nodeType, setNodeGrade, textContent])
+  }, [globalGoal, id, isGradingWithAi, nodeType, setNodeGrade, textContent, t])
 
   const handleAddObservation = useCallback(() => {
     if (nodeType !== 'VALIDATION') return
@@ -494,7 +498,7 @@ export function ResearchNodeCard({
               className="nodrag text-xs font-semibold text-slate-500 transition-colors hover:text-slate-700"
               onClick={() => setIsTextExpanded((value) => !value)}
             >
-              {isTextCollapsed ? 'Read more' : 'Show less'}
+              {isTextCollapsed ? t('nodes.card.readMore') : t('nodes.card.showLess')}
             </button>
           ) : null}
         </div>
@@ -516,7 +520,7 @@ export function ResearchNodeCard({
                     onClick={() => {
                       void handleRemoveFile(attachment.id)
                     }}
-                    aria-label={`Remove ${attachment.name}`}
+                    aria-label={t('nodes.card.removeAttachment', { name: attachment.name })}
                   >
                     ×
                   </button>
@@ -529,13 +533,13 @@ export function ResearchNodeCard({
                   {thumbnailUrl ? (
                     <img
                       src={thumbnailUrl}
-                      alt={`Preview for ${attachment.name}`}
+                      alt={t('nodes.card.previewFor', { name: attachment.name })}
                       className="mt-2 h-24 w-full rounded-md border border-slate-200 object-cover"
                     />
                   ) : null}
 
                   {attachment.processingStatus === 'processing' ? (
-                    <p className="mt-2 text-[11px] text-slate-500">Processing file...</p>
+                    <p className="mt-2 text-[11px] text-slate-500">{t('nodes.card.processingFile')}</p>
                   ) : null}
 
                   {attachment.processingError ? (
@@ -563,13 +567,13 @@ export function ResearchNodeCard({
       {selected ? (
         <div className="nodrag mt-2 space-y-2">
           <div className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1">
-            <div className="flex items-center gap-0.5" role="group" aria-label="Node grade">
+            <div className="flex items-center gap-0.5" role="group" aria-label={t('nodes.card.nodeGrade')}>
               {STAR_VALUES.map((value) => (
                 <button
                   key={value}
                   type="button"
                   className="rounded-sm text-slate-600 transition-colors hover:text-amber-500"
-                  aria-label={`Set grade ${value} star${value === 1 ? '' : 's'}`}
+                  aria-label={t('nodes.card.setGrade', { value, plural: value === 1 ? '' : 's' })}
                   onClick={() => setNodeGrade(id, value)}
                 >
                   <StarIcon filled={value <= nodeGrade} />
@@ -584,7 +588,7 @@ export function ResearchNodeCard({
               }}
               disabled={isGradingWithAi}
             >
-              {isGradingWithAi ? 'Grading...' : 'Grade with AI'}
+              {isGradingWithAi ? t('nodes.card.grading') : t('nodes.card.gradeWithAi')}
             </button>
           </div>
           {gradingError ? <p className="text-[11px] text-rose-600">{gradingError}</p> : null}
@@ -595,7 +599,7 @@ export function ResearchNodeCard({
               onClick={nodeType === 'VALIDATION' ? handleAddObservation : () => generate(id)}
               disabled={nodeType === 'VALIDATION' ? false : isGenerating}
             >
-              {nodeType === 'VALIDATION' ? 'Add observation' : isGenerating ? 'Generating...' : 'Generate'}
+              {nodeType === 'VALIDATION' ? t('nodes.card.addObservation') : isGenerating ? t('nodes.card.generating') : t('nodes.card.generate')}
             </button>
 
             <button
@@ -604,7 +608,7 @@ export function ResearchNodeCard({
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
             >
-              {isUploading ? 'Uploading...' : 'Attach'}
+              {isUploading ? t('nodes.card.uploading') : t('nodes.card.attach')}
             </button>
 
             <input
@@ -622,10 +626,10 @@ export function ResearchNodeCard({
               ref={aiButtonRef}
               type="button"
               className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
-              aria-label="AI Actions"
+              aria-label={t('nodes.card.aiActions')}
               onClick={() => setAiOpen((value) => !value)}
             >
-              AI
+              {t('nodes.card.ai')}
             </button>
 
             {aiOpen && aiButtonRef.current ? (

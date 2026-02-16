@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
@@ -18,6 +19,7 @@ import 'reactflow/dist/style.css'
 
 import { useStore } from '@/stores/useStore'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from '@/lib/i18n'
 import type { OMVNode, NodeType } from '@/stores/useStore'
 import { Sidebar } from '@/components/Sidebar'
 import { ObservationNode } from '@/components/nodes/ObservationNode'
@@ -99,12 +101,6 @@ const findAutoConnectTarget = (
   }
 }
 
-const nodeTypeLabel: Record<SidebarNodeType, string> = {
-  OBSERVATION: 'Observation',
-  MECHANISM: 'Mechanism',
-  VALIDATION: 'Validation',
-}
-
 const nodeTypes = {
   OBSERVATION: ObservationNode,
   MECHANISM: MechanismNode,
@@ -136,7 +132,26 @@ const AlignIcon = () => (
   </svg>
 )
 
+const EarthIcon = () => (
+  <svg
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 0c2.485 2.54 3.75 5.54 3.75 9S14.485 18.46 12 21m0-18C9.515 5.54 8.25 8.54 8.25 12S9.515 18.46 12 21m-8.62-6h17.24M3.38 9h17.24"
+    />
+  </svg>
+)
+
 function Canvas() {
+  const { t, i18n } = useTranslation()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, fitView, getNodes, getZoom, getViewport } = useReactFlow()
   
@@ -250,6 +265,15 @@ function Canvas() {
     setDragDropPreview(null)
   }, [])
 
+  const nodeTypeLabelMap = useMemo<Record<SidebarNodeType, string>>(
+    () => ({
+      OBSERVATION: t('nodes.observation.title'),
+      MECHANISM: t('nodes.mechanism.title'),
+      VALIDATION: t('nodes.validation.title'),
+    }),
+    [t]
+  )
+
   useEffect(() => {
     const handleDragEnd = () => {
       setSidebarDragType(null)
@@ -361,7 +385,7 @@ function Canvas() {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: rawType,
         position,
-        data: { text_content: 'New node' },
+        data: { text_content: t('canvas.newNode') },
       }
 
       addNode(newNode)
@@ -381,7 +405,7 @@ function Canvas() {
       setSidebarDragType(null)
       clearDragDropPreview()
     },
-    [addEdge, addNode, clearDragDropPreview, getZoom, nodes, screenToFlowPosition, sidebarDragType]
+    [addEdge, addNode, clearDragDropPreview, getZoom, nodes, screenToFlowPosition, sidebarDragType, t]
   )
 
   const handleCanvasDragLeave = useCallback(
@@ -423,8 +447,8 @@ function Canvas() {
 
   const previewTargetLabel =
     previewTargetNode && isSidebarNodeType(previewTargetNode.type)
-      ? nodeTypeLabel[previewTargetNode.type]
-      : 'nearby node'
+      ? nodeTypeLabelMap[previewTargetNode.type]
+      : t('canvas.nearbyNode')
 
   const ghostSuggestionFrame = useMemo(() => {
     if (ghostNodes.length === 0) return null
@@ -692,6 +716,24 @@ function Canvas() {
     [createManualGroup, getNodes, selectedNodeIds]
   )
 
+  const selectedLanguage: SupportedLanguage =
+    i18n.language === 'zh-CN' || i18n.language === 'en' ? i18n.language : 'en'
+
+  const handleLanguageChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextLanguage = event.target.value as SupportedLanguage
+
+      void i18n.changeLanguage(nextLanguage)
+
+      try {
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage)
+      } catch (error) {
+        console.error('Failed to persist language preference:', error)
+      }
+    },
+    [i18n]
+  )
+
   void fitView
 
   return (
@@ -702,19 +744,36 @@ function Canvas() {
             SF
           </div>
           <h1 className="text-lg font-semibold text-slate-800">
-            {activeProject ? activeProject.name : 'StemFlow'}
+            {activeProject ? activeProject.name : t('canvas.appName')}
           </h1>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-            BETA
+            {t('canvas.beta')}
           </span>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500">
+          <label
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+            aria-label={t('canvas.switchLanguage')}
+            title={t('canvas.switchLanguage')}
+          >
+            <EarthIcon />
+            <select
+              value={selectedLanguage}
+              onChange={handleLanguageChange}
+              className="bg-transparent text-xs font-semibold text-slate-700 outline-none"
+              aria-label={t('canvas.switchLanguage')}
+              data-testid="topbar-language-select"
+            >
+              <option value="en">English</option>
+              <option value="zh-CN">简体中文</option>
+            </select>
+          </label>
           <button
             onMouseDown={handleGroupSelectedMouseDown}
             className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100"
             data-testid="topbar-group-selected"
           >
-            Group Selected ({selectedNodeIds.length})
+            {t('canvas.groupSelected', { count: selectedNodeIds.length })}
           </button>
           <button
             onClick={formatCanvas}
@@ -722,7 +781,7 @@ function Canvas() {
             data-testid="topbar-format-canvas"
           >
             <AlignIcon />
-            Align Nodes
+            {t('canvas.alignNodes')}
           </button>
         </div>
       </header>
@@ -776,7 +835,7 @@ function Canvas() {
                 }}
                 aria-hidden
               >
-                Release to connect with {previewTargetLabel}
+                {t('canvas.releaseToConnect', { target: previewTargetLabel })}
               </div>
             </>
           )}
@@ -852,14 +911,14 @@ function Canvas() {
                     className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-300 hover:bg-emerald-100"
                     data-testid="ghost-group-accept-all"
                   >
-                    Accept All ({ghostSuggestionFrame.count})
+                    {t('canvas.acceptAll', { count: ghostSuggestionFrame.count })}
                   </button>
                   <button
                     onClick={dismissAllGhostNodes}
                     className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-100"
                     data-testid="ghost-group-dismiss-all"
                   >
-                    Dismiss All
+                    {t('canvas.dismissAll')}
                   </button>
                 </div>
               </>

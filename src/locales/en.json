@@ -8,7 +8,66 @@
     "edit": "Edit",
     "loading": "Loading...",
     "error": "Error",
-    "success": "Success"
+    "success": "Success",
+    "accept": "Accept",
+    "dismiss": "Dismiss",
+    "rename": "Rename"
+  },
+  "canvas": {
+    "newNode": "New node",
+    "nearbyNode": "nearby node",
+    "releaseToConnect": "Release to connect with {{target}}",
+    "acceptAll": "Accept All ({{count}})",
+    "dismissAll": "Dismiss All",
+    "groupSelected": "Group Selected ({{count}})",
+    "alignNodes": "Align Nodes",
+    "beta": "BETA",
+    "appName": "StemFlow",
+    "switchLanguage": "Switch language",
+    "ungroup": "Ungroup",
+    "nodeCount": "{{count}} nodes"
+  },
+  "nodes": {
+    "observation": {
+      "title": "Observation",
+      "placeholder": "Capture an observation"
+    },
+    "mechanism": {
+      "title": "Mechanism",
+      "placeholder": "Describe the mechanism"
+    },
+    "validation": {
+      "title": "Validation",
+      "placeholder": "Document validation"
+    },
+    "card": {
+      "references": "References ({{count}})",
+      "readMore": "Read more",
+      "showLess": "Show less",
+      "processingFile": "Processing file...",
+      "gradingFailed": "Failed to grade node with AI.",
+      "grading": "Grading...",
+      "gradeWithAi": "Grade with AI",
+      "addObservation": "Add observation",
+      "generating": "Generating...",
+      "generate": "Generate",
+      "uploading": "Uploading...",
+      "attach": "Attach",
+      "ai": "AI",
+      "removeAttachment": "Remove {{name}}",
+      "nodeGrade": "Node grade",
+      "setGrade": "Set grade {{value}} star{{plural}}",
+      "aiActions": "AI Actions",
+      "fileProcessingFailed": "File processing failed",
+      "previewFor": "Preview for {{name}}"
+    },
+    "ghost": {
+      "suggestedObservation": "SUGGESTED OBSERVATION",
+      "suggestedMechanism": "SUGGESTED MECHANISM",
+      "suggestedValidation": "SUGGESTED VALIDATION",
+      "acceptSuggestion": "Accept suggestion",
+      "dismissSuggestion": "Dismiss suggestion"
+    }
   },
   "settings": {
     "title": "Settings",

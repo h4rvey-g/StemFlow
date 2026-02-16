@@ -8,7 +8,66 @@
     "edit": "编辑",
     "loading": "加载中...",
     "error": "错误",
-    "success": "成功"
+    "success": "成功",
+    "accept": "接受",
+    "dismiss": "忽略",
+    "rename": "重命名"
+  },
+  "canvas": {
+    "newNode": "新节点",
+    "nearbyNode": "附近节点",
+    "releaseToConnect": "释放以连接 {{target}}",
+    "acceptAll": "全部接受 ({{count}})",
+    "dismissAll": "全部忽略",
+    "groupSelected": "编组选中 ({{count}})",
+    "alignNodes": "对齐节点",
+    "beta": "测试版",
+    "appName": "StemFlow",
+    "switchLanguage": "切换语言",
+    "ungroup": "取消编组",
+    "nodeCount": "{{count}} 个节点"
+  },
+  "nodes": {
+    "observation": {
+      "title": "观察",
+      "placeholder": "记录观察结果"
+    },
+    "mechanism": {
+      "title": "机制",
+      "placeholder": "描述机制"
+    },
+    "validation": {
+      "title": "验证",
+      "placeholder": "记录验证"
+    },
+    "card": {
+      "references": "参考文献 ({{count}})",
+      "readMore": "阅读更多",
+      "showLess": "收起",
+      "processingFile": "正在处理文件...",
+      "gradingFailed": "AI 评分失败。",
+      "grading": "评分中...",
+      "gradeWithAi": "AI 评分",
+      "addObservation": "添加观察",
+      "generating": "生成中...",
+      "generate": "生成",
+      "uploading": "上传中...",
+      "attach": "附件",
+      "ai": "AI",
+      "removeAttachment": "移除 {{name}}",
+      "nodeGrade": "节点评分",
+      "setGrade": "设置评分 {{value}} 星",
+      "aiActions": "AI 操作",
+      "fileProcessingFailed": "文件处理失败",
+      "previewFor": "{{name}} 的预览"
+    },
+    "ghost": {
+      "suggestedObservation": "建议观察",
+      "suggestedMechanism": "建议机制",
+      "suggestedValidation": "建议验证",
+      "acceptSuggestion": "接受建议",
+      "dismissSuggestion": "忽略建议"
+    }
   },
   "settings": {
     "title": "设置",

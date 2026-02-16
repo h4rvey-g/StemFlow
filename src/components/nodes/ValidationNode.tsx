@@ -1,18 +1,22 @@
 import React, { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 
 import { ResearchNodeCard } from '@/components/nodes/ResearchNodeCard'
 import type { NodeData } from '@/types/nodes'
 
-export const ValidationNode = memo((props: NodeProps<NodeData>) => (
-  <ResearchNodeCard
-    {...props}
-    title="Validation"
-    placeholder="Document validation"
-    accentClassName="bg-emerald-500"
-    focusRingClassName="focus:ring-emerald-100"
-    nodeType="VALIDATION"
-  />
-))
+export const ValidationNode = memo((props: NodeProps<NodeData>) => {
+  const { t } = useTranslation()
+  return (
+    <ResearchNodeCard
+      {...props}
+      title={t('nodes.validation.title')}
+      placeholder={t('nodes.validation.placeholder')}
+      accentClassName="bg-emerald-500"
+      focusRingClassName="focus:ring-emerald-100"
+      nodeType="VALIDATION"
+    />
+  )
+})
 
 ValidationNode.displayName = 'ValidationNode'

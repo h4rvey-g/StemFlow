@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { I18nextProvider } from 'react-i18next'
-import i18n from '@/lib/i18n'
+import i18n, { getStoredLanguage } from '@/lib/i18n'
 
 function syncDocumentLang(lang: string) {
   document.documentElement.lang = lang
@@ -14,6 +14,12 @@ interface I18nProviderProps {
 
 export function I18nProvider({ children }: I18nProviderProps) {
   useEffect(() => {
+    const preferredLanguage = getStoredLanguage()
+
+    if (preferredLanguage !== i18n.language) {
+      void i18n.changeLanguage(preferredLanguage)
+    }
+
     syncDocumentLang(i18n.language)
 
     const handleLanguageChanged = (lng: string) => {
