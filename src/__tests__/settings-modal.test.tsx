@@ -206,7 +206,7 @@ describe('SettingsModal', () => {
     render(<SettingsModal isOpen={true} onClose={onClose} />)
     await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
 
-    await userEvent.click(screen.getByRole('button', { name: 'Prompt Settings' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Prompts' }))
 
     const observationToMechanismGenerationPrompt = screen.getByLabelText(
       'Generation Prompt (Observation → Mechanism)'

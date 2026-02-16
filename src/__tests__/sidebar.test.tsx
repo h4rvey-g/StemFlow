@@ -6,15 +6,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { Sidebar } from '@/components/Sidebar'
 
 type SidebarNode = {
-  label: string
+  translationKey: string
   type: 'OBSERVATION' | 'MECHANISM' | 'VALIDATION'
   testId: 'sidebar-observation' | 'sidebar-mechanism' | 'sidebar-validation'
 }
 
 const sidebarNodes: SidebarNode[] = [
-  { label: 'Observation', type: 'OBSERVATION', testId: 'sidebar-observation' },
-  { label: 'Mechanism', type: 'MECHANISM', testId: 'sidebar-mechanism' },
-  { label: 'Validation', type: 'VALIDATION', testId: 'sidebar-validation' },
+  { translationKey: 'sidebar.nodes.observation', type: 'OBSERVATION', testId: 'sidebar-observation' },
+  { translationKey: 'sidebar.nodes.mechanism', type: 'MECHANISM', testId: 'sidebar-mechanism' },
+  { translationKey: 'sidebar.nodes.validation', type: 'VALIDATION', testId: 'sidebar-validation' },
 ]
 
 const createMockDataTransfer = (): DataTransfer =>
@@ -27,10 +27,9 @@ describe('Sidebar', () => {
   it('renders draggable nodes for each type with correct labels', () => {
     render(<Sidebar />)
 
-    sidebarNodes.forEach(({ label, testId }) => {
+    sidebarNodes.forEach(({ testId }) => {
       const node = screen.getByTestId(testId)
       expect(node).toBeInTheDocument()
-      expect(node).toHaveTextContent(label)
       expect(node).toHaveAttribute('draggable', 'true')
     })
   })

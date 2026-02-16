@@ -31,7 +31,7 @@ interface ResearchNodeCardProps extends NodeProps<NodeData> {
 
 const FILE_ACCEPT = 'image/*,application/pdf,text/plain,.txt,.md,.json,.csv'
 const EMPTY_ATTACHMENTS: NodeFileAttachment[] = []
-const TEXT_CLAMP_WORD_THRESHOLD = 150
+const TEXT_CLAMP_LINE_THRESHOLD = 4
 const STAR_VALUES = [1, 2, 3, 4, 5] as const
 const PRIMARY_HANDLE_STYLE: React.CSSProperties = {
   width: 12,
@@ -43,14 +43,8 @@ const PRIMARY_HANDLE_STYLE: React.CSSProperties = {
 const COLLAPSED_TEXT_STYLE: React.CSSProperties = {
   display: '-webkit-box',
   WebkitBoxOrient: 'vertical',
-  WebkitLineClamp: 8,
+  WebkitLineClamp: TEXT_CLAMP_LINE_THRESHOLD,
   overflow: 'hidden',
-}
-
-const countWords = (value: string): number => {
-  const trimmed = value.trim()
-  if (!trimmed) return 0
-  return trimmed.split(/\s+/).length
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -146,6 +140,7 @@ export function ResearchNodeCard({
 
   const aiButtonRef = useRef<HTMLButtonElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const textMeasurementRef = useRef<HTMLDivElement | null>(null)
 
   const [aiOpen, setAiOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -153,12 +148,12 @@ export function ResearchNodeCard({
   const [gradingError, setGradingError] = useState<string | null>(null)
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
   const [isTextExpanded, setIsTextExpanded] = useState(false)
+  const [shouldOfferTextToggle, setShouldOfferTextToggle] = useState(false)
 
   const textContent = data?.text_content ?? ''
   const summaryTitle = data?.summary_title?.trim() ?? ''
   const hasSummaryTitle = summaryTitle.length > 0
   const hasText = textContent.trim().length > 0
-  const shouldOfferTextToggle = countWords(textContent) > TEXT_CLAMP_WORD_THRESHOLD
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
   const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
   const attachments = normalizeAttachments(data)
@@ -210,6 +205,43 @@ export function ResearchNodeCard({
       setIsTextExpanded(false)
     }
   }, [isTextExpanded, shouldOfferTextToggle])
+
+  useEffect(() => {
+    if (selected || !hasText) {
+      setShouldOfferTextToggle(false)
+      return
+    }
+
+    const measurementElement = textMeasurementRef.current
+    if (!measurementElement) return
+
+    const evaluateTextOverflow = () => {
+      const computedStyles = window.getComputedStyle(measurementElement)
+      const lineHeight = Number.parseFloat(computedStyles.lineHeight)
+      const maxVisibleHeight = Number.isFinite(lineHeight)
+        ? lineHeight * TEXT_CLAMP_LINE_THRESHOLD
+        : Number.POSITIVE_INFINITY
+
+      const nextShouldOfferToggle = measurementElement.scrollHeight > maxVisibleHeight + 1
+      setShouldOfferTextToggle(nextShouldOfferToggle)
+    }
+
+    evaluateTextOverflow()
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+        evaluateTextOverflow()
+      })
+      : null
+    resizeObserver?.observe(measurementElement)
+
+    window.addEventListener('resize', evaluateTextOverflow)
+
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', evaluateTextOverflow)
+    }
+  }, [citations, hasText, selected, textContent])
 
   useEffect(() => {
     if (!data?.attachments && data?.fileMetadata) {
@@ -442,7 +474,14 @@ export function ResearchNodeCard({
           rows={1}
         />
       ) : (
-        <div className="space-y-1">
+        <div className="relative space-y-1">
+          <div
+            ref={textMeasurementRef}
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 invisible whitespace-pre-wrap break-words text-sm leading-7"
+            aria-hidden
+          >
+            {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
+          </div>
           <div
             className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700' : 'text-slate-400'}`}
             style={isTextCollapsed ? COLLAPSED_TEXT_STYLE : undefined}

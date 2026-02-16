@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 
 import { saveApiKeys, loadApiKeys, type ApiKeyState, type ApiProvider } from '@/lib/api-keys'
 import { fetchProviderModels } from '@/lib/fetch-provider-models'
@@ -15,8 +16,8 @@ import {
   useStore,
   type ExperimentalCondition,
   EXPERIMENTAL_CONDITION_VALUES,
-  EXPERIMENTAL_CONDITION_LABELS,
 } from '@/stores/useStore'
+import i18n, { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from '@/lib/i18n'
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-3-pro-preview'] as const
 type SettingsTab = 'general' | 'model' | 'prompt'
 
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<SettingsTab>('model');
   const [provider, setProvider] = useState<ApiProvider | null>(null);
   const [openaiKey, setOpenaiKey] = useState('');
@@ -101,13 +103,13 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
     if (!provider) {
       setStatus('error');
-      setErrorMessage('Provider is required');
+      setErrorMessage(t('settings.model.validationErrors.providerRequired'));
       return;
     }
 
     if (provider === 'openai-compatible' && !openaiBaseUrl.trim()) {
       setStatus('error');
-      setErrorMessage('Custom base URL is required for OpenAI-compatible provider');
+      setErrorMessage(t('settings.model.validationErrors.baseUrlRequired'));
       return;
     }
 
@@ -135,7 +137,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       onClose();
     } else {
       setStatus('error');
-      setErrorMessage(result.error || 'Failed to save settings');
+      setErrorMessage(result.error || t('settings.model.validationErrors.saveFailed'));
     }
   };
 
@@ -151,7 +153,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     }
 
     setStatus('error');
-    setErrorMessage(result.error || 'Failed to save prompt settings');
+    setErrorMessage(result.error || t('settings.model.validationErrors.saveFailed'));
   };
 
   const handleObservationToMechanismGenerationPromptChange = (value: string) => {
@@ -192,6 +194,18 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         ? prev.filter((c) => c !== condition)
         : [...prev, condition],
     );
+  };
+
+  const handleLanguageChange = (newLanguage: SupportedLanguage) => {
+    i18n.changeLanguage(newLanguage);
+    
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, newLanguage);
+      }
+    } catch (error) {
+      console.error('Failed to persist language preference:', error);
+    }
   };
 
   const currentKey =
@@ -272,22 +286,22 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
   const handleFetchModels = async () => {
     if (!provider) {
-      setModelFetchMessage('Select a provider first');
+      setModelFetchMessage(t('settings.model.fetchModelMessages.selectProvider'));
       return;
     }
 
     if (provider === 'gemini') {
-      setModelFetchMessage('Fetching models is not supported for Gemini yet');
+      setModelFetchMessage(t('settings.model.fetchModelMessages.geminiNotSupported'));
       return;
     }
 
     if (!currentKey) {
-      setModelFetchMessage('Enter an API key before fetching models');
+      setModelFetchMessage(t('settings.model.fetchModelMessages.enterApiKey'));
       return;
     }
 
     if (provider === 'openai-compatible' && !currentBaseUrl.trim()) {
-      setModelFetchMessage('Enter a custom base URL before fetching models');
+      setModelFetchMessage(t('settings.model.fetchModelMessages.enterBaseUrl'));
       return;
     }
 
@@ -297,7 +311,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     const result = await fetchProviderModels(provider, currentKey, currentBaseUrl || undefined);
 
     if (!result.success) {
-      setModelFetchMessage(result.error || 'Failed to fetch models');
+      setModelFetchMessage(result.error || t('settings.model.fetchModelMessages.failed'));
       setIsFetchingModels(false);
       return;
     }
@@ -305,7 +319,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     const fetched = Array.from(new Set((result.models ?? []).map((model) => model.id).filter(Boolean)));
 
     if (fetched.length === 0) {
-      setModelFetchMessage('No models returned by provider');
+      setModelFetchMessage(t('settings.model.fetchModelMessages.noModels'));
       setIsFetchingModels(false);
       return;
     }
@@ -316,7 +330,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       setCurrentModel(fetched[0]);
     }
 
-    setModelFetchMessage(`Loaded ${fetched.length} models`);
+    setModelFetchMessage(t('settings.model.fetchModelMessages.loaded', { count: fetched.length }));
     setIsFetchingModels(false);
   };
 
@@ -329,7 +343,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     >
       <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('settings.title')}</h2>
           <button
             onClick={onClose}
             className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
@@ -354,7 +368,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
                 }`}
               >
-                General
+                {t('settings.tabs.general')}
               </button>
               <button
                 type="button"
@@ -365,7 +379,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
                 }`}
               >
-                Model Settings
+                {t('settings.tabs.model')}
               </button>
               <button
                 type="button"
@@ -376,7 +390,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
                 }`}
               >
-                Prompt Settings
+                {t('settings.tabs.prompts')}
               </button>
             </div>
 
@@ -384,7 +398,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               <>
                 <div>
                   <label htmlFor="settings-provider" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    AI Provider
+                    {t('settings.model.providerLabel')}
                   </label>
                   <select
                     id="settings-provider"
@@ -392,7 +406,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     onChange={(e) => setProvider(e.target.value ? (e.target.value as ApiProvider) : null)}
                     className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   >
-                    <option value="">Select provider...</option>
+                    <option value="">{t('settings.model.providerPlaceholder')}</option>
                     <option value="openai">OpenAI</option>
                     <option value="openai-compatible">OpenAI-Compatible</option>
                     <option value="anthropic">Anthropic</option>
@@ -402,7 +416,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
                 <div>
                   <label htmlFor="settings-api-key" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    API Key for {provider === 'openai' ? 'OpenAI' : provider === 'openai-compatible' ? 'OpenAI-Compatible' : provider === 'anthropic' ? 'Anthropic' : provider === 'gemini' ? 'Gemini' : 'Provider'}
+                    {t('settings.model.apiKeyLabel', { 
+                      provider: provider === 'openai' ? 'OpenAI' : provider === 'openai-compatible' ? 'OpenAI-Compatible' : provider === 'anthropic' ? 'Anthropic' : provider === 'gemini' ? 'Gemini' : 'Provider'
+                    })}
                   </label>
                   <div className="relative">
                     <input
@@ -410,7 +426,9 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       type={showKey ? 'text' : 'password'}
                       value={currentKey}
                       onChange={(e) => setCurrentKey(e.target.value)}
-                      placeholder={`Enter ${provider === 'anthropic' ? 'sk-ant-...' : provider === 'gemini' ? 'AIza...' : 'sk-...'}`}
+                      placeholder={t('settings.model.apiKeyPlaceholder', { 
+                        placeholder: provider === 'anthropic' ? 'sk-ant-...' : provider === 'gemini' ? 'AIza...' : 'sk-...'
+                      })}
                       disabled={!provider}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                     />
@@ -419,39 +437,39 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       onClick={() => setShowKey(!showKey)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700"
                     >
-                      {showKey ? 'Hide' : 'Show'}
+                      {showKey ? t('settings.model.hideKey') : t('settings.model.showKey')}
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Keys are stored locally and encrypted.
+                    {t('settings.model.apiKeyHelper')}
                   </p>
                 </div>
 
                 {provider === 'openai-compatible' ? (
                   <div>
                     <label htmlFor="settings-base-url" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Custom Base URL
+                      {t('settings.model.baseUrlLabel')}
                     </label>
                     <input
                       id="settings-base-url"
                       type="url"
                       value={currentBaseUrl}
                       onChange={(e) => setCurrentBaseUrl(e.target.value)}
-                      placeholder="https://api.example.com/v1"
+                      placeholder={t('settings.model.baseUrlPlaceholder')}
                       className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                     />
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Used for OpenAI-compatible endpoints.
+                      {t('settings.model.baseUrlHelper')}
                     </p>
                   </div>
                 ) : null}
 
                 <div>
                   <label htmlFor="settings-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Think Model
+                    {t('settings.model.thinkModelLabel')}
                   </label>
                   <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                    Used for node generation, summarization, and other reasoning tasks.
+                    {t('settings.model.thinkModelHelper')}
                   </p>
                   <select
                     id="settings-model"
@@ -470,10 +488,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
                 <div>
                   <label htmlFor="settings-fast-model" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Fast Model
+                    {t('settings.model.fastModelLabel')}
                   </label>
                   <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                    Used for quick tasks like AI grading of nodes.
+                    {t('settings.model.fastModelHelper')}
                   </p>
                   <select
                     id="settings-fast-model"
@@ -495,7 +513,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       disabled={!provider || !currentKey || isFetchingModels || provider === 'gemini'}
                       className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                     >
-                      {isFetchingModels ? 'Fetching...' : 'Fetch Models'}
+                      {isFetchingModels ? t('settings.model.fetching') : t('settings.model.fetchModels')}
                     </button>
                     {modelFetchMessage ? (
                       <span className="text-xs text-gray-500 dark:text-gray-400">{modelFetchMessage}</span>
@@ -506,12 +524,12 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Research Goal (Optional)
+                    {t('settings.model.researchGoalLabel')}
                   </label>
                   <textarea
                     value={localGoal}
                     onChange={(e) => setLocalGoal(e.target.value)}
-                    placeholder="Describe your overarching research question..."
+                    placeholder={t('settings.model.researchGoalPlaceholder')}
                     className="h-24 w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
@@ -520,14 +538,14 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-gray-600 dark:text-gray-300">
-                    Node generation prompts are editable. Supported placeholders: <code>{'{{goal}}'}</code>, <code>{'{{experimentalConditions}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{currentType}}'}</code>, <code>{'{{expectedType}}'}</code>, <code>{'{{nodesContext}}'}</code>.
+                    {t('settings.prompts.editorHelper')}
                   </p>
                   <button
                     type="button"
                     onClick={handleResetPromptDefaults}
                     className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                   >
-                    Reset Default
+                    {t('settings.prompts.resetButton')}
                   </button>
                 </div>
                 <div>
@@ -535,10 +553,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     htmlFor="prompt-next-steps-observation-mechanism"
                     className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Generation Prompt (Observation → Mechanism)
+                    {t('settings.prompts.observationToMechanismLabel')}
                   </label>
                   <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                    Template used when generating from observation nodes.
+                    {t('settings.prompts.observationToMechanismHelper')}
                   </p>
                   <textarea
                     id="prompt-next-steps-observation-mechanism"
@@ -553,10 +571,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     htmlFor="prompt-next-steps-mechanism-validation"
                     className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >
-                    Generation Prompt (Mechanism → Validation)
+                    {t('settings.prompts.mechanismToValidationLabel')}
                   </label>
                   <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                    Template used when generating from mechanism nodes.
+                    {t('settings.prompts.mechanismToValidationHelper')}
                   </p>
                   <textarea
                     id="prompt-next-steps-mechanism-validation"
@@ -570,11 +588,29 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Experimental Conditions
+                  <label htmlFor="settings-language" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('settings.general.language')}
                   </label>
                   <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-                    Select the types of experiments you work with. AI suggestions will be tailored accordingly.
+                    {t('settings.general.languageDescription')}
+                  </p>
+                  <select
+                    id="settings-language"
+                    value={i18n.language}
+                    onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="en">English</option>
+                    <option value="zh-CN">简体中文</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('settings.model.experimentalConditions')}
+                  </label>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t('settings.model.experimentalConditionsDescription')}
                   </p>
                   <div className="flex flex-wrap gap-3">
                     {EXPERIMENTAL_CONDITION_VALUES.map((condition) => (
@@ -589,7 +625,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                           className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-gray-500 dark:bg-gray-700"
                         />
                         <span className="text-sm text-gray-700 dark:text-gray-300">
-                          {EXPERIMENTAL_CONDITION_LABELS[condition]}
+                          {t(`settings.model.${condition === 'dry-lab' ? 'dryLab' : 'wetLab'}`)}
                         </span>
                       </label>
                     ))}
@@ -600,16 +636,16 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <span className={`text-sm text-green-600 transition-opacity ${status === 'saved' ? 'opacity-100' : 'opacity-0'}`}>
-                Saved!
+                {t('settings.status.saved')}
               </span>
               <span className={`text-sm text-red-600 transition-opacity ${status === 'error' ? 'opacity-100' : 'opacity-0'}`}>
-                {errorMessage || 'Error saving'}
+                {errorMessage || t('settings.status.error')}
               </span>
               <button
                 onClick={onClose}
                 className="rounded-md border border-transparent px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-200 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={activeTab === 'model' ? handleSaveModelSettings : activeTab === 'prompt' ? handleSavePromptSettings : handleSaveGeneralSettings}
@@ -620,7 +656,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 }
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {activeTab === 'model' ? 'Save Model Settings' : activeTab === 'prompt' ? 'Save Prompt Settings' : 'Save General Settings'}
+                {activeTab === 'model' ? t('settings.actions.saveModel') : activeTab === 'prompt' ? t('settings.actions.savePrompt') : t('settings.actions.saveGeneral')}
               </button>
             </div>
           </div>

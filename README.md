@@ -6,7 +6,7 @@ Everything runs in your browser. Your data stays in IndexedDB. Your API keys sta
 
 ## TODO
 [] Bilingual support (English + Chinese)
-[] Separate mechanism and validation prompt
+[x] Separate mechanism and validation prompt
 [] Pin nodes to keep them expanded
 [] Add a "Fold all" and "Expand all" button, which folds/expands all nodes on the canvas except the pinned ones
 [] add bright and dark modes

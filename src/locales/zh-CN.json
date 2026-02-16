@@ -1,0 +1,119 @@
+{
+  "common": {
+    "apply": "应用",
+    "cancel": "取消",
+    "close": "关闭",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功"
+  },
+  "settings": {
+    "title": "设置",
+    "tabs": {
+      "general": "通用",
+      "model": "模型设置",
+      "prompts": "提示词"
+    },
+    "general": {
+      "language": "语言",
+      "languageDescription": "选择您的首选语言"
+    },
+    "model": {
+      "provider": "AI 提供商",
+      "providerLabel": "AI 提供商",
+      "providerPlaceholder": "选择提供商...",
+      "apiKey": "API 密钥",
+      "apiKeyLabel": "{{provider}} 的 API 密钥",
+      "apiKeyPlaceholder": "输入 {{placeholder}}",
+      "apiKeyHelper": "密钥在本地存储并加密。",
+      "baseUrl": "基础 URL",
+      "baseUrlLabel": "自定义基础 URL",
+      "baseUrlPlaceholder": "https://api.example.com/v1",
+      "baseUrlHelper": "用于 OpenAI 兼容端点。",
+      "model": "模型",
+      "thinkModelLabel": "思考模型",
+      "thinkModelHelper": "用于节点生成、摘要和其他推理任务。",
+      "fastModel": "快速模型",
+      "fastModelLabel": "快速模型",
+      "fastModelHelper": "用于快速任务，如 AI 节点评分。",
+      "fetchModels": "获取模型",
+      "fetching": "获取中...",
+      "fetchModelMessages": {
+        "selectProvider": "请先选择提供商",
+        "geminiNotSupported": "Gemini 暂不支持获取模型",
+        "enterApiKey": "请先输入 API 密钥",
+        "enterBaseUrl": "请先输入自定义基础 URL",
+        "failed": "获取模型失败",
+        "noModels": "提供商未返回任何模型",
+        "loaded": "已加载 {{count}} 个模型"
+      },
+      "researchGoalLabel": "研究目标（可选）",
+      "researchGoalPlaceholder": "描述您的总体研究问题...",
+      "experimentalConditions": "实验条件",
+      "experimentalConditionsDescription": "选择您使用的实验类型。AI 建议将相应调整。",
+      "dryLab": "干实验室实验",
+      "wetLab": "湿实验室实验",
+      "validationErrors": {
+        "providerRequired": "提供商为必填项",
+        "baseUrlRequired": "OpenAI 兼容提供商需要自定义基础 URL",
+        "saveFailed": "保存设置失败"
+      },
+      "showKey": "显示",
+      "hideKey": "隐藏"
+    },
+    "prompts": {
+      "nodeGeneration": "节点生成提示词",
+      "editorHelper": "节点生成提示词可编辑。支持的占位符：{{goal}}、{{experimentalConditions}}、{{context}}、{{currentType}}、{{expectedType}}、{{nodesContext}}。",
+      "resetButton": "重置为默认",
+      "observationToMechanismLabel": "生成提示词（观察 → 机制）",
+      "observationToMechanismHelper": "从观察节点生成时使用的模板。",
+      "mechanismToValidationLabel": "生成提示词（机制 → 验证）",
+      "mechanismToValidationHelper": "从机制节点生成时使用的模板。",
+      "suggestMechanismFromObservation": "从观察建议机制",
+      "suggestValidationFromMechanism": "从机制建议验证",
+      "resetToDefault": "重置为默认"
+    },
+    "status": {
+      "saved": "设置保存成功",
+      "error": "保存设置失败"
+    },
+    "actions": {
+      "saveModel": "保存模型设置",
+      "savePrompt": "保存提示词设置",
+      "saveGeneral": "保存通用设置"
+    }
+  },
+  "sidebar": {
+    "projects": "项目",
+    "newProject": "新建项目",
+    "defaultProjectName": "新项目",
+    "nodesHeading": "节点",
+    "dragBadge": "拖动",
+    "nodesHelper": "将这些节点拖到画布中。",
+    "deleteProject": "删除项目",
+    "settings": "设置",
+    "deleteConfirm": "您确定要删除此项目吗？此操作无法撤销。",
+    "nodes": {
+      "observation": "观察",
+      "mechanism": "机制",
+      "validation": "验证"
+    }
+  },
+  "popover": {
+    "title": "节点操作",
+    "actions": {
+      "summarize": "总结",
+      "suggestMechanism": "建议机制",
+      "suggestValidation": "建议验证",
+      "critique": "批评",
+      "expand": "扩展",
+      "generateQuestions": "生成问题"
+    },
+    "status": {
+      "active": "活动：{{action}}"
+    }
+  }
+}

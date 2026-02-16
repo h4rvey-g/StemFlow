@@ -1,0 +1,119 @@
+{
+  "common": {
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success"
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "model": "Model Settings",
+      "prompts": "Prompts"
+    },
+    "general": {
+      "language": "Language",
+      "languageDescription": "Select your preferred language"
+    },
+    "model": {
+      "provider": "AI Provider",
+      "providerLabel": "AI Provider",
+      "providerPlaceholder": "Select provider...",
+      "apiKey": "API Key",
+      "apiKeyLabel": "API Key for {{provider}}",
+      "apiKeyPlaceholder": "Enter {{placeholder}}",
+      "apiKeyHelper": "Keys are stored locally and encrypted.",
+      "baseUrl": "Base URL",
+      "baseUrlLabel": "Custom Base URL",
+      "baseUrlPlaceholder": "https://api.example.com/v1",
+      "baseUrlHelper": "Used for OpenAI-compatible endpoints.",
+      "model": "Model",
+      "thinkModelLabel": "Think Model",
+      "thinkModelHelper": "Used for node generation, summarization, and other reasoning tasks.",
+      "fastModel": "Fast Model",
+      "fastModelLabel": "Fast Model",
+      "fastModelHelper": "Used for quick tasks like AI grading of nodes.",
+      "fetchModels": "Fetch Models",
+      "fetching": "Fetching...",
+      "fetchModelMessages": {
+        "selectProvider": "Select a provider first",
+        "geminiNotSupported": "Fetching models is not supported for Gemini yet",
+        "enterApiKey": "Enter an API key before fetching models",
+        "enterBaseUrl": "Enter a custom base URL before fetching models",
+        "failed": "Failed to fetch models",
+        "noModels": "No models returned by provider",
+        "loaded": "Loaded {{count}} models"
+      },
+      "researchGoalLabel": "Research Goal (Optional)",
+      "researchGoalPlaceholder": "Describe your overarching research question...",
+      "experimentalConditions": "Experimental Conditions",
+      "experimentalConditionsDescription": "Select the types of experiments you work with. AI suggestions will be tailored accordingly.",
+      "dryLab": "Dry Lab Experiment",
+      "wetLab": "Wet Lab Experiment",
+      "validationErrors": {
+        "providerRequired": "Provider is required",
+        "baseUrlRequired": "Custom base URL is required for OpenAI-compatible provider",
+        "saveFailed": "Failed to save settings"
+      },
+      "showKey": "Show",
+      "hideKey": "Hide"
+    },
+    "prompts": {
+      "nodeGeneration": "Node Generation Prompt",
+      "editorHelper": "Node generation prompts are editable. Supported placeholders: {{goal}}, {{experimentalConditions}}, {{context}}, {{currentType}}, {{expectedType}}, {{nodesContext}}.",
+      "resetButton": "Reset Default",
+      "observationToMechanismLabel": "Generation Prompt (Observation → Mechanism)",
+      "observationToMechanismHelper": "Template used when generating from observation nodes.",
+      "mechanismToValidationLabel": "Generation Prompt (Mechanism → Validation)",
+      "mechanismToValidationHelper": "Template used when generating from mechanism nodes.",
+      "suggestMechanismFromObservation": "Suggest Mechanism from Observation",
+      "suggestValidationFromMechanism": "Suggest Validation from Mechanism",
+      "resetToDefault": "Reset to Default"
+    },
+    "status": {
+      "saved": "Settings saved successfully",
+      "error": "Failed to save settings"
+    },
+    "actions": {
+      "saveModel": "Save Model Settings",
+      "savePrompt": "Save Prompt Settings",
+      "saveGeneral": "Save General Settings"
+    }
+  },
+  "sidebar": {
+    "projects": "Projects",
+    "newProject": "New Project",
+    "defaultProjectName": "New Project",
+    "nodesHeading": "Nodes",
+    "dragBadge": "Drag",
+    "nodesHelper": "Drag these nodes to the canvas.",
+    "deleteProject": "Delete Project",
+    "settings": "Settings",
+    "deleteConfirm": "Are you sure you want to delete this project? This action cannot be undone.",
+    "nodes": {
+      "observation": "Observation",
+      "mechanism": "Mechanism",
+      "validation": "Validation"
+    }
+  },
+  "popover": {
+    "title": "Node Actions",
+    "actions": {
+      "summarize": "Summarize",
+      "suggestMechanism": "Suggest Mechanism",
+      "suggestValidation": "Suggest Validation",
+      "critique": "Critique",
+      "expand": "Expand",
+      "generateQuestions": "Generate Questions"
+    },
+    "status": {
+      "active": "Active: {{action}}"
+    }
+  }
+}

@@ -7,6 +7,7 @@ import { useAi } from '@/hooks/useAi'
 import { useStore } from '@/stores/useStore'
 import type { NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 import { StreamingText } from '@/components/ui/StreamingText'
+import { useTranslation } from 'react-i18next'
 
 type Props = {
   nodeId: string
@@ -16,16 +17,24 @@ type Props = {
   anchorEl: HTMLElement
 }
 
-const ACTIONS: Array<{ action: AiAction; label: string }> = [
-  { action: 'summarize', label: 'Summarize' },
-  { action: 'suggest-mechanism', label: 'Suggest Mechanism' },
-  { action: 'critique', label: 'Critique' },
-  { action: 'expand', label: 'Expand' },
-  { action: 'questions', label: 'Questions' },
-]
+const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions']
+
+const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
+  summarize: 'summarize',
+  'suggest-mechanism': 'suggestMechanism',
+  critique: 'critique',
+  expand: 'expand',
+  questions: 'generateQuestions',
+}
+
+const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
+  action === 'suggest-mechanism' && nodeType === 'MECHANISM'
+    ? 'suggestValidation'
+    : ACTION_TRANSLATION_KEYS[action]
 
 export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Props) {
   const { isLoading, streamingText, error, executeAction, cancel } = useAi(nodeId)
+  const { t } = useTranslation()
 
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
@@ -88,6 +97,8 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
 
   const showSuggest = nodeType === 'OBSERVATION' || nodeType === 'MECHANISM'
 
+  const getActionLabel = (action: AiAction) => t(`popover.actions.${getActionTranslationKey(action, nodeType)}`)
+
   return createPortal(
     <div
       className="fixed inset-0 z-[1000]"
@@ -104,11 +115,11 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
         }}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">AI Actions</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">{t('popover.title')}</div>
           <button
             type="button"
             className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
-            aria-label="Close"
+            aria-label={t('common.close')}
             onClick={onClose}
           >
             ×
@@ -116,22 +127,19 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {ACTIONS.filter((a) => (a.action === 'suggest-mechanism' ? showSuggest : true)).map((item) => {
-            const label =
-              item.action === 'suggest-mechanism' && nodeType === 'MECHANISM'
-                ? 'Suggest Validation'
-                : item.label
+          {ACTIONS.filter((a) => (a === 'suggest-mechanism' ? showSuggest : true)).map((action) => {
+            const label = getActionLabel(action)
 
             return (
-            <button
-              key={item.action}
-              type="button"
-              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-left text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-              onClick={() => runAction(item.action)}
-              disabled={isLoading}
-            >
-              {label}
-            </button>
+              <button
+                key={action}
+                type="button"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-left text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                onClick={() => runAction(action)}
+                disabled={isLoading}
+              >
+                {label}
+              </button>
             )
           })}
         </div>
@@ -152,7 +160,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
               className="rounded-md bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
               onClick={cancel}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           ) : (
             <button
@@ -161,10 +169,12 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
               disabled={!streamingText.trim()}
               onClick={applyResult}
             >
-              Apply
+              {t('common.apply')}
             </button>
           )}
-          <div className="text-[11px] text-slate-500">{activeAction ? `Action: ${activeAction}` : ''}</div>
+          <div className="text-[11px] text-slate-500">
+            {activeAction ? t('popover.status.active', { action: getActionLabel(activeAction) }) : ''}
+          </div>
         </div>
       </div>
     </div>,

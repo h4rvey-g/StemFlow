@@ -1,6 +1,7 @@
 import React, { memo, DragEvent, useState, useRef, useEffect } from 'react'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { SettingsModal } from './ui/SettingsModal'
+import { useTranslation } from 'react-i18next'
 
 const SettingsIcon = () => (
   <svg
@@ -62,6 +63,7 @@ const CheckIcon = () => (
 )
 
 export const Sidebar = memo(() => {
+  const { t } = useTranslation()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -82,7 +84,7 @@ export const Sidebar = memo(() => {
   }, [editingProjectId])
 
   const handleCreateProject = async () => {
-    const newProject = await createProject('New Project')
+    const newProject = await createProject(t('sidebar.defaultProjectName'))
     setActiveProject(newProject.id)
     setEditingProjectId(newProject.id)
     setEditName(newProject.name)
@@ -113,7 +115,7 @@ export const Sidebar = memo(() => {
   const handleDeleteProject = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     if (projects.length <= 1) return
-    if (window.confirm('Are you sure you want to delete this project?')) {
+    if (window.confirm(t('sidebar.deleteConfirm'))) {
       await deleteProject(id)
     }
   }
@@ -143,11 +145,11 @@ export const Sidebar = memo(() => {
       <div className="flex-1 overflow-y-auto">
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">Projects</div>
+            <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">{t('sidebar.projects')}</div>
             <button
               onClick={handleCreateProject}
               className="rounded-md bg-slate-100 p-1 text-slate-600 hover:bg-slate-200 hover:text-slate-800"
-              title="New Project"
+              title={t('sidebar.newProject')}
             >
               <PlusIcon />
             </button>
@@ -198,7 +200,7 @@ export const Sidebar = memo(() => {
                       <button
                         onClick={(e) => handleDeleteProject(e, project.id)}
                         className="hidden text-slate-400 hover:text-red-500 group-hover:block"
-                        title="Delete Project"
+                        title={t('sidebar.deleteProject')}
                       >
                         <XIcon />
                       </button>
@@ -211,8 +213,8 @@ export const Sidebar = memo(() => {
         </div>
 
         <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">Nodes</div>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">Drag</span>
+          <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">{t('sidebar.nodesHeading')}</div>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{t('sidebar.dragBadge')}</span>
         </div>
 
         <div
@@ -222,7 +224,7 @@ export const Sidebar = memo(() => {
           draggable
           data-testid="sidebar-observation"
         >
-          Observation
+          {t('sidebar.nodes.observation')}
         </div>
 
         <div
@@ -232,7 +234,7 @@ export const Sidebar = memo(() => {
           draggable
           data-testid="sidebar-mechanism"
         >
-          Mechanism
+          {t('sidebar.nodes.mechanism')}
         </div>
 
         <div
@@ -242,24 +244,24 @@ export const Sidebar = memo(() => {
           draggable
           data-testid="sidebar-validation"
         >
-          Validation
+          {t('sidebar.nodes.validation')}
         </div>
 
         <div className="mt-4 text-xs text-slate-500">
-          Drag these nodes to the canvas.
+          {t('sidebar.nodesHelper')}
         </div>
       </div>
 
-      <div className="border-t border-slate-200 pt-4">
-        <button
-          onClick={() => setIsSettingsOpen(true)}
-          className="flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-200 hover:bg-slate-100"
-          data-testid="sidebar-settings"
-        >
-          <SettingsIcon />
-          Settings
-        </button>
-      </div>
+        <div className="border-t border-slate-200 pt-4">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-200 hover:bg-slate-100"
+            data-testid="sidebar-settings"
+          >
+            <SettingsIcon />
+            {t('sidebar.settings')}
+          </button>
+        </div>
 
       <SettingsModal
         isOpen={isSettingsOpen}
