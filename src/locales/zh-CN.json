@@ -174,5 +174,17 @@
     "status": {
       "active": "活动：{{action}}"
     }
+  },
+  "inspector": {
+    "title": "检查器",
+    "longText": "全文",
+    "citations": "参考文献",
+    "noCitations": "无可用参考文献",
+    "attachments": "附件",
+    "fileNotAvailable": "文件不可用",
+    "ai": {
+      "title": "AI 操作",
+      "active": "活动：{{action}}"
+    }
   }
 }

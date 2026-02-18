@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
@@ -156,7 +156,17 @@ export function ResearchNodeCard({
   const hasText = textContent.trim().length > 0
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
   const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
-  const attachments = normalizeAttachments(data)
+  const attachments = useMemo(
+    () => normalizeAttachments(data),
+    [
+      data?.attachments,
+      data?.fileMetadata,
+      data?.fileProcessingStatus,
+      data?.fileProcessingError,
+      data?.fileTextExcerpt,
+      data?.imageDescription,
+    ]
+  )
   const citations = data?.citations ?? []
   const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
 
@@ -253,13 +263,23 @@ export function ResearchNodeCard({
     }
   }, [data, setAttachments])
 
+  const thumbnailSignature = useMemo(
+    () =>
+      Object.entries(thumbnailUrls)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, url]) => `${key}:${url}`)
+        .join('|'),
+    [thumbnailUrls]
+  )
+
   useEffect(() => {
     updateNodeInternals(id)
   }, [
     id,
     textContent,
     attachments,
-    thumbnailUrls,
+    thumbnailSignature,
+    isTextCollapsed,
     updateNodeInternals,
   ])
 
@@ -496,7 +516,15 @@ export function ResearchNodeCard({
             <button
               type="button"
               className="nodrag text-xs font-semibold text-slate-500 transition-colors hover:text-slate-700"
-              onClick={() => setIsTextExpanded((value) => !value)}
+              onClick={() => {
+                if (isTextCollapsed) {
+                  window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
+                    detail: { nodeId: id }
+                  }))
+                } else {
+                  setIsTextExpanded(false)
+                }
+              }}
             >
               {isTextCollapsed ? t('nodes.card.readMore') : t('nodes.card.showLess')}
             </button>

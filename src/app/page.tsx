@@ -27,8 +27,12 @@ import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
 import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
+import { InspectorPanel } from '@/components/ui/InspectorPanel'
+import { InspectorAiActions } from '@/components/ui/InspectorAiActions'
+import { InspectorAttachments } from '@/components/ui/InspectorAttachments'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
 import { buildManualGroupNodes } from '@/lib/graph'
+import type { NodeData, NodeFileAttachment } from '@/types/nodes'
 
 const DEBUG_GHOSTS = false
 const AUTO_CONNECT_PROXIMITY_PX = 150
@@ -56,6 +60,18 @@ type DragDropPreview = {
 
 const isSidebarNodeType = (value: string): value is SidebarNodeType =>
   value === 'OBSERVATION' || value === 'MECHANISM' || value === 'VALIDATION'
+
+const normalizeAttachments = (nodeData?: NodeData): NodeFileAttachment[] => {
+  if (Array.isArray(nodeData?.attachments)) return nodeData.attachments
+  if (!nodeData?.fileMetadata) return []
+  return [{
+    ...nodeData.fileMetadata,
+    processingStatus: nodeData.fileProcessingStatus ?? 'ready',
+    processingError: nodeData.fileProcessingError ?? null,
+    textExcerpt: nodeData.fileTextExcerpt ?? null,
+    imageDescription: nodeData.imageDescription ?? null,
+  }]
+}
 
 const getNodeCenter = (node: OMVNode) => {
   const width = typeof node.width === 'number' ? node.width : 0
@@ -167,6 +183,7 @@ function Canvas() {
   const [viewport, setViewport] = useState(() => ({ x: 0, y: 0, zoom: 1 }))
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
+  const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
   
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const isProjectLoaded = useProjectStore((s) => s.isLoaded)
@@ -206,8 +223,19 @@ function Canvas() {
       )
       .map((node) => node.id)
 
-    if (selectedFromStore.length === 0) return
+    if (selectedFromStore.length === 0) {
+      setSelectedNodeIds([])
+      setInspectorNodeId(null)
+      return
+    }
+    
     setSelectedNodeIds(selectedFromStore)
+    
+    if (selectedFromStore.length === 1) {
+      setInspectorNodeId(selectedFromStore[0])
+    } else {
+      setInspectorNodeId(null)
+    }
   }, [nodes])
 
   useEffect(() => {
@@ -298,13 +326,27 @@ function Canvas() {
       setDragDropPreview(null)
     }
 
+    const handleReadMoreIntent = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return
+      const detail = event.detail
+      const nodeId = detail && typeof detail === 'object' && 'nodeId' in detail
+        ? (detail.nodeId as string)
+        : null
+      
+      if (nodeId) {
+        setInspectorNodeId(nodeId)
+      }
+    }
+
     window.addEventListener('dragend', handleDragEnd)
     window.addEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
     window.addEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
+    window.addEventListener('stemflow:read-more-intent', handleReadMoreIntent as EventListener)
     return () => {
       window.removeEventListener('dragend', handleDragEnd)
       window.removeEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
       window.removeEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
+      window.removeEventListener('stemflow:read-more-intent', handleReadMoreIntent as EventListener)
     }
   }, [])
 
@@ -602,6 +644,12 @@ function Canvas() {
       )
       .map((node) => node.id)
     setSelectedNodeIds(nextIds)
+    
+    if (nextIds.length === 1) {
+      setInspectorNodeId(nextIds[0])
+    } else {
+      setInspectorNodeId(null)
+    }
   }, [])
 
   const onNodesChange = useCallback(
@@ -735,6 +783,9 @@ function Canvas() {
   )
 
   void fitView
+
+  const inspectorNode = inspectorNodeId ? nodes.find((n) => n.id === inspectorNodeId) : null
+  const isInspectorOpen = inspectorNode !== null
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100">
@@ -925,6 +976,19 @@ function Canvas() {
             ) : null}
           </ReactFlow>
         </div>
+        <InspectorPanel 
+          isOpen={isInspectorOpen} 
+          onClose={() => setInspectorNodeId(null)}
+          nodeText={inspectorNode?.data.text_content}
+          citations={inspectorNode?.data.citations}
+        >
+          {inspectorNode && (
+            <>
+              <InspectorAttachments attachments={normalizeAttachments(inspectorNode.data)} />
+              <InspectorAiActions nodeId={inspectorNode.id} />
+            </>
+          )}
+        </InspectorPanel>
       </div>
     </div>
   )

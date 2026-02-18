@@ -174,5 +174,17 @@
     "status": {
       "active": "Active: {{action}}"
     }
+  },
+  "inspector": {
+    "title": "Inspector",
+    "longText": "Full Text",
+    "citations": "Citations",
+    "noCitations": "No citations available",
+    "attachments": "Attachments",
+    "fileNotAvailable": "File not available",
+    "ai": {
+      "title": "AI Actions",
+      "active": "Active: {{action}}"
+    }
   }
 }

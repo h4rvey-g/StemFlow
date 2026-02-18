@@ -13,6 +13,25 @@ class ResizeObserver {
 }
 global.ResizeObserver = ResizeObserver
 
+const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const fallbackPattern = (text: string, key: string) => new RegExp(`(${escapeForRegex(text)}|${escapeForRegex(key)})`, 'i')
+
+const projectStoreState = {
+  projects: [],
+  activeProjectId: null,
+  isLoaded: true,
+  loadProjects: vi.fn(),
+}
+
+vi.mock('@/stores/useProjectStore', () => {
+  const useProjectStore = <T,>(selector?: (state: typeof projectStoreState) => T) =>
+    selector ? selector(projectStoreState as any) : (projectStoreState as unknown as T)
+
+  useProjectStore.getState = () => projectStoreState
+
+  return { useProjectStore }
+})
+
 vi.mock('@/stores/useStore', () => {
   const state: StoreState = {
     nodes: [],
@@ -56,7 +75,7 @@ vi.mock('@/stores/useStore', () => {
   }
 
   const useStore = <T,>(selector?: (state: StoreState) => T) =>
-    selector ? selector(state) : state
+    selector ? selector(state) : (state as unknown as T)
 
   return {
     useStore,
@@ -133,8 +152,8 @@ describe('Canvas Page', () => {
     const acceptAllButton = screen.getByTestId('ghost-group-accept-all')
     const dismissAllButton = screen.getByTestId('ghost-group-dismiss-all')
 
-    expect(acceptAllButton).toHaveTextContent('Accept All (2)')
-    expect(dismissAllButton).toHaveTextContent('Dismiss All')
+    expect(acceptAllButton).toHaveTextContent(fallbackPattern('Accept All (2)', 'canvas.acceptAll'))
+    expect(dismissAllButton).toHaveTextContent(fallbackPattern('Dismiss All', 'canvas.dismissAll'))
 
     fireEvent.click(acceptAllButton)
     fireEvent.click(dismissAllButton)

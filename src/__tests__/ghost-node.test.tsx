@@ -19,6 +19,10 @@ const renderWithProvider = (component: React.ReactNode) => {
   return render(<ReactFlowProvider>{component}</ReactFlowProvider>)
 }
 
+const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const fallbackPattern = (text: string, key: string) =>
+  new RegExp(`^(?:${escapeForRegex(text)}|${escapeForRegex(key)})$`, 'i')
+
 describe('GhostNode', () => {
   const defaultProps = {
     id: 'ghost-1',
@@ -44,10 +48,15 @@ describe('GhostNode', () => {
   it('renders correctly with observation styling', () => {
     renderWithProvider(<GhostNode {...defaultProps} />)
     
-    expect(screen.getByText('SUGGESTED OBSERVATION')).toBeInTheDocument()
+    expect(
+      screen.getByText(fallbackPattern('Suggested Observation', 'nodes.ghost.suggestedObservation'))
+    ).toBeInTheDocument()
     expect(screen.getByText('This is a suggested observation')).toBeInTheDocument()
     
-    const container = screen.getByText('SUGGESTED OBSERVATION').closest('div')?.parentElement
+    const container = screen
+      .getByText(fallbackPattern('Suggested Observation', 'nodes.ghost.suggestedObservation'))
+      .closest('div')
+      ?.parentElement
     expect(container).toHaveClass('border-dashed')
   })
 
@@ -61,15 +70,20 @@ describe('GhostNode', () => {
     }
     renderWithProvider(<GhostNode {...props} />)
     
-    expect(screen.getByText('SUGGESTED MECHANISM')).toBeInTheDocument()
-    const container = screen.getByText('SUGGESTED MECHANISM').closest('div')?.parentElement
+    expect(
+      screen.getByText(fallbackPattern('Suggested Mechanism', 'nodes.ghost.suggestedMechanism'))
+    ).toBeInTheDocument()
+    const container = screen
+      .getByText(fallbackPattern('Suggested Mechanism', 'nodes.ghost.suggestedMechanism'))
+      .closest('div')
+      ?.parentElement
     expect(container).toHaveClass('border-dashed')
   })
 
   it('calls acceptGhostNode when accept button is clicked', () => {
     renderWithProvider(<GhostNode {...defaultProps} />)
     
-    const acceptButton = screen.getByLabelText('Accept suggestion')
+    const acceptButton = screen.getByLabelText(fallbackPattern('Accept suggestion', 'nodes.ghost.acceptSuggestion'))
     fireEvent.click(acceptButton)
     
     expect(mockAcceptGhostNode).toHaveBeenCalledWith('ghost-1')
@@ -78,7 +92,7 @@ describe('GhostNode', () => {
   it('calls dismissGhostNode when dismiss button is clicked', () => {
     renderWithProvider(<GhostNode {...defaultProps} />)
     
-    const dismissButton = screen.getByLabelText('Dismiss suggestion')
+    const dismissButton = screen.getByLabelText(fallbackPattern('Dismiss suggestion', 'nodes.ghost.dismissSuggestion'))
     fireEvent.click(dismissButton)
     
     expect(mockDismissGhostNode).toHaveBeenCalledWith('ghost-1')

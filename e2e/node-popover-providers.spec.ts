@@ -1,6 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import { dragSidebarTileToCanvas } from './helpers/drag-drop'
 
 const evidencePath = (name: string) => `/Users/harveyguo/StemFlow/.sisyphus/evidence/${name}`
+const OBSERVATION_LABEL = /Observation|nodes\.observation\.title/i
+const CLOSE_LABEL = /(Close|common\.close)/i
+const AI_ACTIONS_LABEL = /AI Actions|nodes\.card\.aiActions/i
+const SUMMARIZE_LABEL = /Summarize|popover\.actions\.summarize/i
+const APPLY_LABEL = /Apply|common\.apply/i
+
+const getNodeByLabel = (page: Page, label: RegExp) =>
+  page.locator('div.react-flow__node').filter({ hasText: label }).first()
+
+const closeInspectorOverlay = async (page: Page) => {
+  const inspector = page.getByTestId('inspector-panel')
+  if (!(await inspector.isVisible().catch(() => false))) return
+
+  await inspector.getByRole('button', { name: CLOSE_LABEL }).click()
+  await expect(inspector).toBeHidden()
+}
 
 test.describe('NodePopover providers', () => {
   test('Gemini streaming works via /api/ai/gemini', async ({ page }) => {
@@ -26,18 +43,17 @@ test.describe('NodePopover providers', () => {
     await page.goto('/', { waitUntil: 'networkidle' })
 
     const canvas = page.locator('.react-flow__pane')
-    await page.getByTestId('sidebar-observation').dragTo(canvas, {
-      targetPosition: { x: 220, y: 220 },
-    })
+    await dragSidebarTileToCanvas(page, 'sidebar-observation', { x: 220, y: 220 })
 
-    const node = page.locator('div.react-flow__node:has-text("Observation")').first()
+    const node = getNodeByLabel(page, OBSERVATION_LABEL)
     await node.click({ position: { x: 10, y: 10 } })
-    await node.getByRole('button', { name: 'AI Actions' }).click()
+    await closeInspectorOverlay(page)
+    await node.getByRole('button', { name: AI_ACTIONS_LABEL }).click()
 
-    await page.getByRole('button', { name: 'Summarize' }).click()
+    await page.getByRole('button', { name: SUMMARIZE_LABEL }).click()
     await expect(page.getByTestId('streaming-text-container')).toContainText('Hello Gemini')
 
-    await page.getByRole('button', { name: 'Apply' }).click()
+    await page.getByRole('button', { name: APPLY_LABEL }).click()
     await expect(page.locator('div.react-flow__node')).toHaveCount(2)
 
     await page.screenshot({ path: evidencePath('task-14-gemini-workflow.png') })
@@ -70,18 +86,17 @@ test.describe('NodePopover providers', () => {
     await page.goto('/', { waitUntil: 'networkidle' })
 
     const canvas = page.locator('.react-flow__pane')
-    await page.getByTestId('sidebar-observation').dragTo(canvas, {
-      targetPosition: { x: 220, y: 220 },
-    })
+    await dragSidebarTileToCanvas(page, 'sidebar-observation', { x: 220, y: 220 })
 
-    const node = page.locator('div.react-flow__node:has-text("Observation")').first()
+    const node = getNodeByLabel(page, OBSERVATION_LABEL)
     await node.click({ position: { x: 10, y: 10 } })
-    await node.getByRole('button', { name: 'AI Actions' }).click()
+    await closeInspectorOverlay(page)
+    await node.getByRole('button', { name: AI_ACTIONS_LABEL }).click()
 
-    await page.getByRole('button', { name: 'Summarize' }).click()
+    await page.getByRole('button', { name: SUMMARIZE_LABEL }).click()
     await expect(page.getByTestId('streaming-text-container')).toContainText('Hello Claude')
 
-    await page.getByRole('button', { name: 'Apply' }).click()
+    await page.getByRole('button', { name: APPLY_LABEL }).click()
     await expect(page.locator('div.react-flow__node')).toHaveCount(2)
 
     await page.screenshot({ path: evidencePath('task-14-anthropic-workflow.png') })
