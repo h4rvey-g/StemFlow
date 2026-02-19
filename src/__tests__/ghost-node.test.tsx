@@ -4,15 +4,20 @@ import { GhostNode } from '../components/nodes/GhostNode'
 import type { GhostNodeData } from '@/types/nodes'
 import { ReactFlowProvider } from 'reactflow'
 
-const mockAcceptGhostNode = vi.fn()
+const mockAcceptGhost = vi.fn()
 const mockDismissGhostNode = vi.fn()
 
 vi.mock('@/stores/useStore', () => ({
   useStore: (selector: any) =>
     selector({
-      acceptGhostNode: mockAcceptGhostNode,
       dismissGhostNode: mockDismissGhostNode,
     }),
+}))
+
+vi.mock('@/hooks/useGenerate', () => ({
+  useGenerate: () => ({
+    acceptGhost: mockAcceptGhost,
+  }),
 }))
 
 const renderWithProvider = (component: React.ReactNode) => {
@@ -27,10 +32,12 @@ describe('GhostNode', () => {
   const defaultProps = {
     id: 'ghost-1',
     data: {
-      text_content: 'This is a suggested observation',
+      text_content: 'This text should not be rendered',
+      summary_title: 'This is a suggested observation title',
       suggestedType: 'OBSERVATION',
       parentId: 'parent-1',
       ghostId: 'ghost-1',
+      citations: [{ index: 1, title: 'Ref 1', url: 'http://example.com' }]
     } as GhostNodeData,
     selected: false,
     zIndex: 1000,
@@ -45,13 +52,15 @@ describe('GhostNode', () => {
     vi.clearAllMocks()
   })
 
-  it('renders correctly with observation styling', () => {
+  it('renders correctly with observation styling and title only', () => {
     renderWithProvider(<GhostNode {...defaultProps} />)
     
     expect(
       screen.getByText(fallbackPattern('Suggested Observation', 'nodes.ghost.suggestedObservation'))
     ).toBeInTheDocument()
-    expect(screen.getByText('This is a suggested observation')).toBeInTheDocument()
+    expect(screen.getByText('This is a suggested observation title')).toBeInTheDocument()
+    expect(screen.queryByText('This text should not be rendered')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ref 1')).not.toBeInTheDocument()
     
     const container = screen
       .getByText(fallbackPattern('Suggested Observation', 'nodes.ghost.suggestedObservation'))
@@ -66,6 +75,7 @@ describe('GhostNode', () => {
       data: {
         ...defaultProps.data,
         suggestedType: 'MECHANISM' as const,
+        summary_title: 'Mechanism Title',
       },
     }
     renderWithProvider(<GhostNode {...props} />)
@@ -73,6 +83,8 @@ describe('GhostNode', () => {
     expect(
       screen.getByText(fallbackPattern('Suggested Mechanism', 'nodes.ghost.suggestedMechanism'))
     ).toBeInTheDocument()
+    expect(screen.getByText('Mechanism Title')).toBeInTheDocument()
+    
     const container = screen
       .getByText(fallbackPattern('Suggested Mechanism', 'nodes.ghost.suggestedMechanism'))
       .closest('div')
@@ -80,13 +92,13 @@ describe('GhostNode', () => {
     expect(container).toHaveClass('border-dashed')
   })
 
-  it('calls acceptGhostNode when accept button is clicked', () => {
+  it('calls acceptGhost from useGenerate when accept button is clicked', () => {
     renderWithProvider(<GhostNode {...defaultProps} />)
     
     const acceptButton = screen.getByLabelText(fallbackPattern('Accept suggestion', 'nodes.ghost.acceptSuggestion'))
     fireEvent.click(acceptButton)
     
-    expect(mockAcceptGhostNode).toHaveBeenCalledWith('ghost-1')
+    expect(mockAcceptGhost).toHaveBeenCalledWith('ghost-1')
   })
 
   it('calls dismissGhostNode when dismiss button is clicked', () => {
@@ -96,23 +108,5 @@ describe('GhostNode', () => {
     fireEvent.click(dismissButton)
     
     expect(mockDismissGhostNode).toHaveBeenCalledWith('ghost-1')
-  })
-
-  it('renders bold and italic markdown emphasis in suggestion text', () => {
-    const props = {
-      ...defaultProps,
-      data: {
-        ...defaultProps.data,
-        text_content: 'Test **critical term** and *secondary term* in output.',
-      },
-    }
-
-    renderWithProvider(<GhostNode {...props} />)
-
-    const bold = screen.getByText('critical term')
-    const italic = screen.getByText('secondary term')
-
-    expect(bold.tagName).toBe('STRONG')
-    expect(italic.tagName).toBe('EM')
   })
 })

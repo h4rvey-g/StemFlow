@@ -2,6 +2,25 @@ import type { Edge, Node } from 'reactflow'
 
 export type NodeType = 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'
 
+export type PlannerDirectionType = Exclude<NodeType, 'GHOST'>
+
+export interface PlannerDirectionPreview {
+  id: string
+  summary_title: string
+  suggestedType: PlannerDirectionType
+  searchQuery: string
+  sourceNodeId?: string
+}
+
+export type GenerationStatus = 'pending' | 'complete' | 'error'
+
+export interface GenerationErrorPayload {
+  message: string
+  code?: string
+  retryable?: boolean
+  provider?: string
+}
+
 export interface Citation {
   index: number
   title: string
@@ -31,6 +50,9 @@ export interface NodeData {
   grade?: number | null
   attachments?: NodeFileAttachment[]
   citations?: Citation[]
+  generationStatus?: GenerationStatus
+  generationError?: GenerationErrorPayload
+  sourceGhostId?: string
   // Legacy fields kept for backward compatibility with older persisted data.
   fileMetadata?: FileMetadata | null
   fileProcessingStatus?: 'processing' | 'ready' | 'error' | null
@@ -53,12 +75,15 @@ export interface ManualNodeGroup {
 }
 
 export interface GhostNodeData {
-  text_content: string
-  summary_title?: string
-  suggestedType: NodeType
+  plannerDirection: PlannerDirectionPreview
+  suggestedType: PlannerDirectionType
   parentId: string
   ghostId: string
+  summary_title?: string
+  text_content?: string
   citations?: Citation[]
+  generationStatus?: GenerationStatus
+  generationError?: GenerationErrorPayload
 }
 
 export type GhostNode = Node<GhostNodeData> & {

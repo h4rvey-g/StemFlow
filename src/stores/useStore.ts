@@ -8,11 +8,11 @@ import { useProjectStore } from '@/stores/useProjectStore'
 import { deleteAttachmentsForNode } from '@/lib/file-storage'
 import { formatNodesNeatly, resolveVerticalCollisions } from '@/lib/node-layout'
 import type {
+  GenerationErrorPayload,
   GhostEdge,
   GhostNode,
   ManualNodeGroup,
   NodeData,
-  NodeType,
   OMVEdge,
   OMVNode,
 } from '@/types/nodes'
@@ -317,6 +317,13 @@ export interface StoreState {
   onConnect: (connection: Connection) => void
   setGhostNodes: (nodes: GhostNode[]) => void
   setGhostSuggestions: (nodes: GhostNode[], edges: GhostEdge[]) => void
+  createPendingNodeFromGhost: (ghostId: string) => string | null
+  hydratePendingNode: (
+    pendingNodeId: string,
+    payload: Pick<NodeData, 'text_content' | 'summary_title' | 'citations'>
+  ) => void
+  markPendingNodeError: (pendingNodeId: string, error: GenerationErrorPayload) => void
+  retryPendingNodeGeneration: (pendingNodeId: string) => boolean
   acceptGhostNode: (ghostId: string) => void
   acceptAllGhostNodes: () => void
   dismissGhostNode: (ghostId: string) => void
@@ -535,21 +542,41 @@ export const useStore = create<StoreState>((set) => ({
   setGhostSuggestions: (ghostNodes, ghostEdges) => {
     set(() => ({ ghostNodes, ghostEdges }))
   },
-  acceptGhostNode: (ghostId) => {
+  /**
+   * Transitions a ghost node to a real node with 'pending' status.
+   * This reserves the node's identity and position before the heavy generation starts.
+   */
+  createPendingNodeFromGhost: (ghostId) => {
+    let createdNodeId: string | null = null
+
     set((state) => {
       const ghostNode = state.ghostNodes.find((node) => node.id === ghostId)
       if (!ghostNode) {
-        return { ghostNodes: state.ghostNodes }
+        return state
       }
 
-      const newNodeId = `node-${Date.now()}`
+      const existingFromGhost = state.nodes.find((node) => node.data.sourceGhostId === ghostNode.data.ghostId)
+      if (existingFromGhost) {
+        return state
+      }
+
+      const newNodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      createdNodeId = newNodeId
+
       const newNode: OMVNode = {
         id: newNodeId,
-        type: ghostNode.data.suggestedType as Exclude<NodeType, 'GHOST'>,
+        type: ghostNode.data.suggestedType,
         data: {
-          text_content: ghostNode.data.text_content,
-          summary_title: ghostNode.data.summary_title,
+          text_content:
+            ghostNode.data.text_content ??
+            ghostNode.data.summary_title ??
+            ghostNode.data.plannerDirection.summary_title ??
+            '',
+          summary_title:
+            ghostNode.data.summary_title ?? ghostNode.data.plannerDirection.summary_title,
           citations: ghostNode.data.citations,
+          generationStatus: 'pending',
+          sourceGhostId: ghostNode.data.ghostId,
         },
         position: ghostNode.position,
       }
@@ -573,74 +600,112 @@ export const useStore = create<StoreState>((set) => ({
         },
         state.edges
       )
+
       const ghostNodes = state.ghostNodes.filter((node) => node.id !== ghostId)
       const ghostEdges = state.ghostEdges.filter((edge) => edge.target !== ghostId)
 
       schedulePersist(nodes, edges)
-
       return { nodes, edges, ghostNodes, ghostEdges }
     })
-  },
-  acceptAllGhostNodes: () => {
-    set((state) => {
-      if (state.ghostNodes.length === 0) {
-        return state
-      }
 
-      const now = Date.now()
-      const additions = state.ghostNodes.map((ghostNode, index) => {
-        const newNodeId = `node-${now}-${index}`
-        const newNode: OMVNode = {
-          id: newNodeId,
-          type: ghostNode.data.suggestedType as Exclude<NodeType, 'GHOST'>,
-          data: {
-            text_content: ghostNode.data.text_content,
-            summary_title: ghostNode.data.summary_title,
-            citations: ghostNode.data.citations,
-          },
-          position: ghostNode.position,
-        }
+    return createdNodeId
+  },
+  /**
+   * Finalizes a pending node with generated content.
+   * Guarded to only update nodes currently in 'pending' state.
+   */
+  hydratePendingNode: (pendingNodeId, payload) => {
+    set((state) => {
+      const nodes: OMVNode[] = state.nodes.map((node): OMVNode => {
+        if (node.id !== pendingNodeId) return node
+        if (node.data.generationStatus !== 'pending') return node
 
         return {
-          newNode,
-          ghostNode,
+          ...node,
+          data: {
+            ...node.data,
+            text_content: payload.text_content,
+            summary_title: payload.summary_title,
+            citations: payload.citations,
+            generationStatus: 'complete' as const,
+            generationError: undefined,
+          },
         }
       })
 
-      const nodes = [...state.nodes, ...additions.map((entry) => entry.newNode)]
-      const edgesToAdd = additions.map(({ ghostNode, newNode }) =>
-        withDistributedHandles(
-          {
-            source: ghostNode.data.parentId,
-            target: newNode.id,
-            sourceHandle: null,
-            targetHandle: null,
+      schedulePersist(nodes, state.edges)
+      return { nodes }
+    })
+  },
+  /**
+   * Marks a pending node as failed.
+   * Allows the UI to show error states and retry options.
+   */
+  markPendingNodeError: (pendingNodeId, error) => {
+    set((state) => {
+      const nodes: OMVNode[] = state.nodes.map((node): OMVNode => {
+        if (node.id !== pendingNodeId) return node
+        if (node.data.generationStatus !== 'pending') return node
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            generationStatus: 'error' as const,
+            generationError: error,
           },
-          nodes
-        )
-      )
+        }
+      })
 
-      const edges = edgesToAdd.reduce<OMVEdge[]>((acc, edge) => {
-        const next = addEdge(
-          {
-            source: edge.source,
-            target: edge.target,
-            sourceHandle: edge.sourceHandle,
-            targetHandle: edge.targetHandle,
+      schedulePersist(nodes, state.edges)
+      return { nodes }
+    })
+  },
+  /**
+   * Resets an error node back to 'pending' state for a retry attempt.
+   * Preserves the node's identity (ID) so the UI doesn't flicker or lose context.
+   */
+  retryPendingNodeGeneration: (pendingNodeId) => {
+    let retryStarted = false
+
+    set((state) => {
+      const nodes: OMVNode[] = state.nodes.map((node): OMVNode => {
+        if (node.id !== pendingNodeId) return node
+
+        const canRetry =
+          node.data.generationStatus === 'error' &&
+          node.data.generationError?.retryable === true
+
+        if (!canRetry) return node
+
+        retryStarted = true
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            generationStatus: 'pending' as const,
+            generationError: undefined,
           },
-          acc
-        )
-        return next as OMVEdge[]
-      }, state.edges)
+        }
+      })
 
-      schedulePersist(nodes, edges)
-
-      return {
-        nodes,
-        edges,
-        ghostNodes: [],
-        ghostEdges: [],
+      if (!retryStarted) {
+        return state
       }
+
+      schedulePersist(nodes, state.edges)
+      return { nodes }
+    })
+
+    return retryStarted
+  },
+  acceptGhostNode: (ghostId) => {
+    useStore.getState().createPendingNodeFromGhost(ghostId)
+  },
+  acceptAllGhostNodes: () => {
+    const ghostIds = useStore.getState().ghostNodes.map((ghostNode) => ghostNode.id)
+    ghostIds.forEach((ghostId) => {
+      useStore.getState().createPendingNodeFromGhost(ghostId)
     })
   },
   dismissGhostNode: (ghostId) => {

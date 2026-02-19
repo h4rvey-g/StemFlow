@@ -65,6 +65,10 @@ vi.mock('@/stores/useStore', () => {
     onConnect: vi.fn(),
     setGhostNodes: vi.fn(),
     setGhostSuggestions: vi.fn(),
+    createPendingNodeFromGhost: vi.fn(),
+    hydratePendingNode: vi.fn(),
+    markPendingNodeError: vi.fn(),
+    retryPendingNodeGeneration: vi.fn(() => false),
     acceptGhostNode: vi.fn(),
     acceptAllGhostNodes: vi.fn(),
     dismissGhostNode: vi.fn(),
@@ -147,6 +151,12 @@ describe('Canvas Page', () => {
           suggestedType: 'OBSERVATION',
           parentId: 'parent-1',
           ghostId: 'ghost-1',
+          plannerDirection: {
+            id: 'ghost-1-direction',
+            summary_title: 'Suggested',
+            suggestedType: 'OBSERVATION',
+            searchQuery: 'Suggested',
+          },
         },
       },
       {
@@ -158,6 +168,12 @@ describe('Canvas Page', () => {
           suggestedType: 'MECHANISM',
           parentId: 'parent-1',
           ghostId: 'ghost-2',
+          plannerDirection: {
+            id: 'ghost-2-direction',
+            summary_title: 'Suggested 2',
+            suggestedType: 'MECHANISM',
+            searchQuery: 'Suggested 2',
+          },
         },
       },
     ]

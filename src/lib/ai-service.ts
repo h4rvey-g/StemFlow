@@ -1204,6 +1204,190 @@ const buildPrompt = (
   })
 }
 
+/**
+ * Phase 1: Planner Preview
+ * Generates lightweight research directions to populate ghost nodes.
+ * This split reduces latency by deferring heavy content generation until a path is chosen.
+ */
+export async function planNextDirections(
+  ancestry: OMVNode[],
+  globalGoal: string,
+  provider: 'openai' | 'anthropic' | 'openai-compatible',
+  apiKey: string,
+  model?: string | null,
+  baseUrl?: string | null,
+  gradedNodes: NodeSuggestionContext[] = []
+): Promise<import('@/types/nodes').PlannerDirectionPreview[]> {
+  const currentNode = ancestry[ancestry.length - 1]
+  const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
+  const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
+  const plannerMaxTokens = getModelOutputTokenLimit(modelName)
+
+  const plannerResponse = await requestAiText(
+    provider,
+    apiKey,
+    modelName,
+    baseUrl,
+    [
+      {
+        role: 'system',
+        content: 'You are a scientific research planner. Output strict JSON only.',
+      },
+      {
+        role: 'user',
+        content: buildPlannerPrompt(ancestry, globalGoal, expectedNextType, gradedNodes),
+      },
+    ],
+    0.2,
+    plannerMaxTokens
+  )
+
+  let plannedDirections: PlannedDirection[]
+  try {
+    const plannerPayload = extractJsonPayload(plannerResponse.text)
+    plannedDirections = parsePlannedDirections(JSON.parse(plannerPayload))
+  } catch (parseError) {
+    if (plannerResponse.finishReason === 'length') {
+      const repaired = repairTruncatedJsonArray(plannerResponse.text)
+      if (repaired) {
+        try {
+          plannedDirections = parsePlannedDirections(repaired, 1)
+        } catch {
+          throw parseError
+        }
+      } else {
+        throw parseError
+      }
+    } else {
+      throw parseError
+    }
+  }
+
+  const suggestedType = (expectedNextType ?? 'OBSERVATION') as import('@/types/nodes').PlannerDirectionType
+  const sourceNodeId = currentNode?.id
+
+  return plannedDirections.map((dir) => ({
+    id: `planner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    summary_title: dir.summary_title,
+    suggestedType,
+    searchQuery: dir.search_query,
+    ...(sourceNodeId ? { sourceNodeId } : {}),
+  }))
+}
+
+/**
+ * Phase 2: Accept-Time Generation
+ * Generates full node content grounded in literature for a specific chosen direction.
+ */
+export async function generateStepFromDirection(
+  direction: import('@/types/nodes').PlannerDirectionPreview,
+  ancestry: OMVNode[],
+  globalGoal: string,
+  provider: 'openai' | 'anthropic' | 'openai-compatible',
+  apiKey: string,
+  model?: string | null,
+  baseUrl?: string | null,
+  gradedNodes: NodeSuggestionContext[] = []
+): Promise<GeneratedStep> {
+  const currentNode = ancestry[ancestry.length - 1]
+  const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
+  const promptBase = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
+  const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
+  const maxTokens = getModelOutputTokenLimit(modelName)
+
+  const plannedDirection: PlannedDirection = {
+    summary_title: direction.summary_title,
+    direction_focus: direction.summary_title,
+    search_query: direction.searchQuery,
+  }
+
+  try {
+    const exaSources = await buildExaSources(direction.searchQuery).catch(() => [])
+    const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
+
+    const directionResponse = await requestAiText(
+      provider,
+      apiKey,
+      modelName,
+      baseUrl,
+      [
+        {
+          role: 'system',
+          content: 'You are a scientific research assistant. Follow the requested output format exactly.',
+        },
+        {
+          role: 'user',
+          content: buildDirectionPrompt(promptBase, plannedDirection, exaSources),
+        },
+      ],
+      0.4,
+      maxTokens
+    )
+
+    let parsed: unknown
+    try {
+      const payload = extractJsonPayload(directionResponse.text)
+      parsed = JSON.parse(payload)
+    } catch (parseError) {
+      console.error('[AI Service] generateStepFromDirection JSON parse failed', {
+        provider,
+        modelName,
+        finishReason: directionResponse.finishReason,
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+        contentPreview: directionResponse.text.slice(0, 400),
+      })
+      throw parseError
+    }
+
+    const steps = toGeneratedSteps(parsed, exaSourcesById)
+    const step = steps[0]
+
+    if (!step) {
+      throw new Error('Failed to parse AI response')
+    }
+
+    const rawItem = Array.isArray(parsed) ? parsed[0] : null
+    const aiProvidedTitle =
+      isRecord(rawItem) &&
+      (typeof rawItem.summary_title === 'string' ||
+        typeof rawItem.title === 'string' ||
+        typeof rawItem.summary === 'string')
+
+    if (!aiProvidedTitle) {
+      step.summary_title = direction.summary_title
+    }
+
+    return expectedNextType ? { ...step, type: expectedNextType } : step
+  } catch (error) {
+    if (error instanceof Error) {
+      if (
+        error.message.includes('401') ||
+        error.message.includes('403') ||
+        error.message.includes('API key') ||
+        error.message.toLowerCase().includes('unauthorized') ||
+        error.message.toLowerCase().includes('forbidden')
+      ) {
+        throw new Error('Invalid API key')
+      }
+      if (
+        error.message.includes('429') ||
+        error.message.toLowerCase().includes('rate limit') ||
+        error.message.toLowerCase().includes('too many requests')
+      ) {
+        throw new Error('Rate limit exceeded')
+      }
+      if (error.message.includes('Failed to parse')) {
+        throw error
+      }
+      if (error.message.includes('fetch') || error.message.includes('network')) {
+        throw new Error('Network error: Failed to reach AI provider')
+      }
+      throw error
+    }
+    throw new Error('AI request failed')
+  }
+}
+
 export async function generateNextSteps(
   ancestry: OMVNode[],
   globalGoal: string,

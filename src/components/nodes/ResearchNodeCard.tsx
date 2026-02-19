@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
 
-import { useAiGeneration } from '@/hooks/useAiGeneration'
+import { useGenerate } from '@/hooks/useGenerate'
 import { describeImageWithVision } from '@/lib/ai-service'
 import { gradeNode } from '@/lib/ai-service'
 import { processFileInWorker } from '@/lib/file-processing-client'
@@ -148,7 +148,7 @@ export function ResearchNodeCard({
   const addEdge = useStore((state) => state.addEdge)
   const globalGoal = useStore((state) => state.globalGoal)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
-  const { generate, isGenerating } = useAiGeneration()
+  const { generate, isGenerating, retryPendingNodeGeneration } = useGenerate()
   const updateNodeInternals = useUpdateNodeInternals()
 
   const aiButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -169,6 +169,8 @@ export function ResearchNodeCard({
   const hasText = textContent.trim().length > 0
   const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
   const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
+  const generationStatus = data?.generationStatus
+  const generationError = data?.generationError
   const attachments = useMemo(
     () => normalizeAttachments(data),
     [
@@ -292,6 +294,8 @@ export function ResearchNodeCard({
     attachments,
     thumbnailSignature,
     isTextCollapsed,
+    generationStatus,
+    generationError,
     updateNodeInternals,
   ])
 
@@ -531,6 +535,29 @@ export function ResearchNodeCard({
         ) : null}
       </div>
       {citations.length > 0 ? <ReferencesSection citations={citations} /> : null}
+
+      {generationStatus === 'pending' ? (
+        <div className="mt-3 flex items-center justify-center py-2" data-testid="node-generation-spinner">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-400" />
+        </div>
+      ) : null}
+
+      {generationStatus === 'error' && generationError ? (
+        <div className="mt-3 rounded-md bg-rose-50 p-2 text-xs text-rose-600 dark:bg-rose-900/20 dark:text-rose-300">
+          <p className="font-medium">{t('nodes.card.generationFailed')}</p>
+          <p className="mt-0.5">{generationError.message}</p>
+          {generationError.retryable ? (
+            <button
+              type="button"
+              className="mt-2 rounded bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700 hover:bg-rose-200 dark:bg-rose-800 dark:text-rose-200 dark:hover:bg-rose-700"
+              onClick={() => retryPendingNodeGeneration(id)}
+              data-testid="node-generation-retry"
+            >
+              {t('nodes.card.retry')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {attachments.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-2">

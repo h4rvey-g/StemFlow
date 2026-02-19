@@ -37,6 +37,11 @@ vi.mock('@/stores/useStore', () => ({
 }))
 
 describe('NodePopover', () => {
+  beforeEach(() => {
+    mockExecuteAction.mockReset()
+    mockCancel.mockReset()
+  })
+
   it('shows Suggest Mechanism for Observation and Suggest Validation for Mechanism', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
@@ -69,7 +74,7 @@ describe('NodePopover', () => {
     expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
   })
 
-  it('clicking an action calls executeAction', async () => {
+  it('Summarize action still executes with ghost-preview options', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
     ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
@@ -86,7 +91,40 @@ describe('NodePopover', () => {
 
     fireEvent.click(await screen.findByText('Summarize'))
     await waitFor(() => {
+      expect(mockExecuteAction).toHaveBeenCalledTimes(1)
       expect(mockExecuteAction).toHaveBeenCalledWith('summarize', undefined, { createNodeOnComplete: false })
     })
+  })
+
+  it('suggest action labels remain observation->mechanism and mechanism->validation', async () => {
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
+
+    const onClose = vi.fn()
+
+    const { rerender } = render(
+      <NodePopover
+        nodeId="n1"
+        nodeType="OBSERVATION"
+        isOpen={true}
+        onClose={onClose}
+        anchorEl={anchor}
+      />
+    )
+
+    expect(await screen.findByText('Suggest Mechanism')).toBeInTheDocument()
+
+    rerender(
+      <NodePopover
+        nodeId="n1"
+        nodeType="MECHANISM"
+        isOpen={true}
+        onClose={onClose}
+        anchorEl={anchor}
+      />
+    )
+
+    expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
   })
 })
