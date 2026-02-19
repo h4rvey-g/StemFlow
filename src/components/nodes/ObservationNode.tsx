@@ -13,7 +13,6 @@ export const ObservationNode = memo((props: NodeProps<NodeData>) => {
       title={t('nodes.observation.title')}
       placeholder={t('nodes.observation.placeholder')}
       accentClassName="bg-blue-500"
-      focusRingClassName="focus:ring-blue-100"
       nodeType="OBSERVATION"
     />
   )

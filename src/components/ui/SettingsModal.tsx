@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 
 import { saveApiKeys, loadApiKeys, type ApiKeyState, type ApiProvider } from '@/lib/api-keys'
 import { fetchProviderModels } from '@/lib/fetch-provider-models'
@@ -28,9 +29,11 @@ const OPENAI_MODELS = ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'] as const
 const ANTHROPIC_MODELS = ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'] as const
 const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-3-pro-preview'] as const
 type SettingsTab = 'general' | 'model' | 'prompt'
+type AppTheme = 'bright' | 'dark'
 
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const { t } = useTranslation()
+  const { theme, setTheme } = useTheme()
   const [activeTab, setActiveTab] = useState<SettingsTab>('model');
   const [provider, setProvider] = useState<ApiProvider | null>(null);
   const [openaiKey, setOpenaiKey] = useState('');
@@ -60,6 +63,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const experimentalConditions = useStore(state => state.experimentalConditions);
   const setExperimentalConditions = useStore(state => state.setExperimentalConditions);
   const [localConditions, setLocalConditions] = useState<ExperimentalCondition[]>([]);
+  const [localTheme, setLocalTheme] = useState<AppTheme>('bright');
 
   useEffect(() => {
     setIsMounted(true);
@@ -75,6 +79,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       setActiveTab('general');
       setLocalGoal(globalGoal);
       setLocalConditions([...experimentalConditions]);
+      setLocalTheme(theme === 'dark' ? 'dark' : 'bright');
       setFetchedModelOptions({});
       setModelFetchMessage('');
       setPromptSettings(loadPromptSettings());
@@ -95,7 +100,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         setIsLoading(false);
       });
     }
-  }, [isOpen, globalGoal, experimentalConditions]);
+  }, [isOpen, globalGoal, experimentalConditions, theme]);
 
   const handleSaveModelSettings = async () => {
     setStatus('idle');
@@ -184,6 +189,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     setStatus('idle');
     setErrorMessage('');
     setExperimentalConditions(localConditions);
+    setTheme(localTheme);
     setStatus('saved');
     onClose();
   };
@@ -587,6 +593,24 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               </div>
             ) : (
               <div className="space-y-3">
+                <div>
+                  <label htmlFor="settings-theme" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('settings.general.theme')}
+                  </label>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t('settings.general.themeDescription')}
+                  </p>
+                  <select
+                    id="settings-theme"
+                    value={localTheme}
+                    onChange={(e) => setLocalTheme(e.target.value as AppTheme)}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-inner focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="bright">{t('settings.general.themeBright')}</option>
+                    <option value="dark">{t('settings.general.themeDark')}</option>
+                  </select>
+                </div>
+
                 <div>
                   <label htmlFor="settings-language" className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {t('settings.general.language')}

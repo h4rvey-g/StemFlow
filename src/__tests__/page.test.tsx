@@ -5,6 +5,15 @@ import Page from '../app/page'
 import type { StoreState } from '@/stores/useStore'
 import { useStore } from '@/stores/useStore'
 
+const setThemeMock = vi.fn()
+
+vi.mock('next-themes', () => ({
+  useTheme: () => ({
+    theme: 'bright',
+    setTheme: setThemeMock,
+  }),
+}))
+
 
 class ResizeObserver {
   observe() {}
@@ -90,6 +99,7 @@ vi.mock('@/stores/useStore', () => {
 describe('Canvas Page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setThemeMock.mockReset()
   })
 
   it('renders the sidebar and canvas', () => {
@@ -115,6 +125,14 @@ describe('Canvas Page', () => {
     fireEvent.keyDown(window, { key: 'z', metaKey: true })
 
     expect(undoLastAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('toggles theme from top bar button', () => {
+    render(<Page />)
+
+    fireEvent.click(screen.getByTestId('topbar-theme-toggle'))
+
+    expect(setThemeMock).toHaveBeenCalledWith('dark')
   })
 
   it('shows grouped ghost actions and triggers accept all/dismiss all', () => {

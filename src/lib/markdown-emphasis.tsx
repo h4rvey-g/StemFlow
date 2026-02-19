@@ -263,7 +263,7 @@ const renderInline = (input: string, citations: Citation[] | undefined, keyPrefi
   return tokens.map((token, index) => {
     if (token.kind === 'bold') {
       return (
-        <strong key={`${keyPrefix}-b-${index}`} className="font-semibold text-slate-800">
+        <strong key={`${keyPrefix}-b-${index}`} className="font-semibold text-inherit">
           {token.value}
         </strong>
       )
@@ -287,7 +287,7 @@ const renderInline = (input: string, citations: Citation[] | undefined, keyPrefi
             target="_blank"
             rel="noopener noreferrer"
             title={citation.title}
-            className="cursor-pointer text-blue-600 hover:text-blue-800 hover:underline"
+            className="cursor-pointer text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-300 dark:hover:text-blue-200"
           >
             <sup>[{token.index}]</sup>
           </a>
@@ -295,7 +295,7 @@ const renderInline = (input: string, citations: Citation[] | undefined, keyPrefi
       }
 
       return (
-        <sup key={`${keyPrefix}-c-${index}`} className="cursor-default text-blue-600">
+        <sup key={`${keyPrefix}-c-${index}`} className="cursor-default text-blue-600 dark:text-blue-300">
           [{token.index}]
         </sup>
       )

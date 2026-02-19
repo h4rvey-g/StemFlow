@@ -2,6 +2,7 @@
 
 import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
@@ -166,8 +167,37 @@ const EarthIcon = () => (
   </svg>
 )
 
+const SunIcon = () => (
+  <svg
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <circle cx="12" cy="12" r="4" strokeWidth={2} />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77" />
+  </svg>
+)
+
+const MoonIcon = () => (
+  <svg
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
+  </svg>
+)
+
 function Canvas() {
   const { t, i18n } = useTranslation()
+  const { theme, setTheme } = useTheme()
+  const [isThemeMounted, setIsThemeMounted] = useState(false)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, fitView, getNodes, getZoom, getViewport } = useReactFlow()
   
@@ -197,6 +227,7 @@ function Canvas() {
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
   const loadFromDb = useStore((s) => s.loadFromDb)
+  const updateNode = useStore((s) => s.updateNode)
   const formatCanvas = useStore((s) => s.formatCanvas)
   const acceptAllGhostNodes = useStore((s) => s.acceptAllGhostNodes)
   const dismissAllGhostNodes = useStore((s) => s.dismissAllGhostNodes)
@@ -206,6 +237,10 @@ function Canvas() {
 
   useEffect(() => {
     useProjectStore.getState().loadProjects()
+  }, [])
+
+  useEffect(() => {
+    setIsThemeMounted(true)
   }, [])
 
   useEffect(() => {
@@ -225,18 +260,14 @@ function Canvas() {
 
     if (selectedFromStore.length === 0) {
       setSelectedNodeIds([])
-      setInspectorNodeId(null)
-      return
-    }
-    
-    setSelectedNodeIds(selectedFromStore)
-    
-    if (selectedFromStore.length === 1) {
-      setInspectorNodeId(selectedFromStore[0])
     } else {
+      setSelectedNodeIds(selectedFromStore)
+    }
+
+    if (inspectorNodeId && !nodes.some((node) => node.id === inspectorNodeId)) {
       setInspectorNodeId(null)
     }
-  }, [nodes])
+  }, [inspectorNodeId, nodes])
 
   useEffect(() => {
     if (!isProjectLoaded || !activeProjectId) return
@@ -644,12 +675,6 @@ function Canvas() {
       )
       .map((node) => node.id)
     setSelectedNodeIds(nextIds)
-    
-    if (nextIds.length === 1) {
-      setInspectorNodeId(nextIds[0])
-    } else {
-      setInspectorNodeId(null)
-    }
   }, [])
 
   const onNodesChange = useCallback(
@@ -766,6 +791,42 @@ function Canvas() {
 
   const selectedLanguage: SupportedLanguage =
     i18n.language === 'zh-CN' || i18n.language === 'en' ? i18n.language : 'en'
+  const isDarkTheme = isThemeMounted && theme === 'dark'
+
+  const handleThemeToggle = useCallback(() => {
+    setTheme(isDarkTheme ? 'bright' : 'dark')
+  }, [isDarkTheme, setTheme])
+
+  const inspectorNode = inspectorNodeId ? nodes.find((n) => n.id === inspectorNodeId) : null
+  const isInspectorOpen = inspectorNode !== null
+
+  const inspectorPlaceholder = useMemo(() => {
+    if (!inspectorNode) return ''
+
+    switch (inspectorNode.type) {
+      case 'OBSERVATION':
+        return t('nodes.observation.placeholder')
+      case 'MECHANISM':
+        return t('nodes.mechanism.placeholder')
+      case 'VALIDATION':
+        return t('nodes.validation.placeholder')
+      default:
+        return ''
+    }
+  }, [inspectorNode, t])
+
+  const handleInspectorNodeTextChange = useCallback(
+    (nextText: string) => {
+      if (!inspectorNode) return
+
+      updateNode(inspectorNode.id, {
+        data: {
+          text_content: nextText,
+        },
+      })
+    },
+    [inspectorNode, updateNode]
+  )
 
   const handleLanguageChange = useCallback(
     (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -784,26 +845,32 @@ function Canvas() {
 
   void fitView
 
-  const inspectorNode = inspectorNodeId ? nodes.find((n) => n.id === inspectorNodeId) : null
-  const isInspectorOpen = inspectorNode !== null
-
   return (
-    <div className="flex h-full w-full flex-col bg-slate-100">
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white/80 px-6 shadow-sm backdrop-blur">
+    <div className="flex h-full w-full flex-col bg-slate-100 dark:bg-slate-950">
+      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white/80 px-6 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-sm shadow-sm">
             SF
           </div>
-          <h1 className="text-lg font-semibold text-slate-800">
+          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
             {activeProject ? activeProject.name : t('canvas.appName')}
           </h1>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">
             {t('canvas.beta')}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
+          <button
+            onClick={handleThemeToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+            aria-label={isDarkTheme ? t('canvas.switchToBrightTheme') : t('canvas.switchToDarkTheme')}
+            title={isDarkTheme ? t('canvas.switchToBrightTheme') : t('canvas.switchToDarkTheme')}
+            data-testid="topbar-theme-toggle"
+          >
+            {isDarkTheme ? <SunIcon /> : <MoonIcon />}
+          </button>
           <label
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
             aria-label={t('canvas.switchLanguage')}
             title={t('canvas.switchLanguage')}
           >
@@ -811,7 +878,7 @@ function Canvas() {
             <select
               value={selectedLanguage}
               onChange={handleLanguageChange}
-              className="bg-transparent text-xs font-semibold text-slate-700 outline-none"
+              className="bg-transparent text-xs font-semibold text-slate-700 outline-none dark:text-slate-200"
               aria-label={t('canvas.switchLanguage')}
               data-testid="topbar-language-select"
             >
@@ -821,14 +888,14 @@ function Canvas() {
           </label>
           <button
             onMouseDown={handleGroupSelectedMouseDown}
-            className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100"
+            className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100 dark:border-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200 dark:hover:border-cyan-600 dark:hover:bg-cyan-900/50"
             data-testid="topbar-group-selected"
           >
             {t('canvas.groupSelected', { count: selectedNodeIds.length })}
           </button>
           <button
             onClick={formatCanvas}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
             data-testid="topbar-format-canvas"
           >
             <AlignIcon />
@@ -839,7 +906,7 @@ function Canvas() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <div
-          className="relative flex-1 overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200"
+          className="relative flex-1 overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800"
           ref={reactFlowWrapper}
           onDragLeave={handleCanvasDragLeave}
           style={{ height: '100%', width: '100%' }}
@@ -920,7 +987,7 @@ function Canvas() {
               color="#cbd5e1"
             />
             <Controls 
-              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur"
+              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80"
             />
             <MiniMap 
               nodeColor={(node) => {
@@ -932,7 +999,7 @@ function Canvas() {
                   default: return '#64748b'
                 }
               }}
-              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur"
+              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80"
               maskColor="rgb(241, 245, 249, 0.6)"
             />
             {ghostSuggestionFrame ? (
@@ -980,12 +1047,16 @@ function Canvas() {
           isOpen={isInspectorOpen} 
           onClose={() => setInspectorNodeId(null)}
           nodeText={inspectorNode?.data.text_content}
+          nodePlaceholder={inspectorPlaceholder}
+          onNodeTextChange={inspectorNode ? handleInspectorNodeTextChange : undefined}
           citations={inspectorNode?.data.citations}
         >
           {inspectorNode && (
             <>
               <InspectorAttachments attachments={normalizeAttachments(inspectorNode.data)} />
-              <InspectorAiActions nodeId={inspectorNode.id} />
+              {inspectorNode.type !== 'GHOST' ? (
+                <InspectorAiActions nodeId={inspectorNode.id} />
+              ) : null}
             </>
           )}
         </InspectorPanel>

@@ -14,49 +14,65 @@ import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ObservationNode } from '@/components/nodes/ObservationNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 
-const updateNodeMock = vi.fn()
-
 vi.mock('@/stores/useStore', () => ({
-  useStore: (selector: (state: { updateNode: typeof updateNodeMock }) => unknown) =>
-    selector({ updateNode: updateNodeMock }),
+  useStore: (
+    selector: (state: {
+      updateNodeData: ReturnType<typeof vi.fn>
+      setNodeGrade: ReturnType<typeof vi.fn>
+      addNode: ReturnType<typeof vi.fn>
+      addEdge: ReturnType<typeof vi.fn>
+      globalGoal: string
+    }) => unknown
+  ) =>
+    selector({
+      updateNodeData: vi.fn(),
+      setNodeGrade: vi.fn(),
+      addNode: vi.fn(),
+      addEdge: vi.fn(),
+      globalGoal: '',
+    }),
 }))
 
-const renderNodeWithPlaceholder = (Component: React.ComponentType<any>, placeholderKey: string, nodeId: string) => {
-  render(<Component id={nodeId} data={{ text_content: 'initial' }} isConnectable={false} selected />)
-  const textarea = screen.getByPlaceholderText(new RegExp(`${placeholderKey}|${placeholderKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
-  expect(textarea).toBeInTheDocument()
-  return textarea as HTMLTextAreaElement
-}
-
-const simulateTextChange = (textarea: HTMLTextAreaElement, nodeId: string, newValue: string) => {
-  fireEvent.change(textarea, { target: { value: newValue } })
-  expect(updateNodeMock).toHaveBeenCalledWith(nodeId, {
-    data: { text_content: newValue },
-  })
+const renderNode = (Component: React.ComponentType<any>, nodeId: string, text = 'initial', selected = true) => {
+  render(
+    <Component
+      id={nodeId}
+      data={{ text_content: text }}
+      isConnectable={false}
+      selected={selected}
+      type="OBSERVATION"
+      zIndex={0}
+      xPos={0}
+      yPos={0}
+      dragging={false}
+    />
+  )
 }
 
 describe('Node components', () => {
   beforeEach(() => {
-    updateNodeMock.mockReset()
     updateInternalsMock.mockReset()
   })
 
-  it('calls updateNode when ObservationNode text updates', () => {
-    const textarea = renderNodeWithPlaceholder(ObservationNode, 'nodes.observation.placeholder', 'obs-1')
+  it('keeps ObservationNode content as static text when selected', () => {
+    renderNode(ObservationNode, 'obs-1', 'new observation', true)
 
-    simulateTextChange(textarea, 'obs-1', 'new observation')
+    expect(screen.getAllByText('new observation').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('calls updateNode when MechanismNode text updates', () => {
-    const textarea = renderNodeWithPlaceholder(MechanismNode, 'nodes.mechanism.placeholder', 'mech-1')
+  it('keeps MechanismNode content as static text when selected', () => {
+    renderNode(MechanismNode, 'mech-1', 'new mechanism', true)
 
-    simulateTextChange(textarea, 'mech-1', 'new mechanism')
+    expect(screen.getAllByText('new mechanism').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('calls updateNode when ValidationNode text updates', () => {
-    const textarea = renderNodeWithPlaceholder(ValidationNode, 'nodes.validation.placeholder', 'valid-1')
+  it('keeps ValidationNode content as static text when selected', () => {
+    renderNode(ValidationNode, 'valid-1', 'new validation', true)
 
-    simulateTextChange(textarea, 'valid-1', 'new validation')
+    expect(screen.getAllByText('new validation').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
   it('dispatches read-more intent event when Read More is clicked', async () => {

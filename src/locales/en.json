@@ -23,6 +23,8 @@
     "alignNodes": "Align Nodes",
     "beta": "BETA",
     "appName": "StemFlow",
+    "switchToDarkTheme": "Switch to dark theme",
+    "switchToBrightTheme": "Switch to bright theme",
     "switchLanguage": "Switch language",
     "ungroup": "Ungroup",
     "nodeCount": "{{count}} nodes"
@@ -77,6 +79,10 @@
       "prompts": "Prompts"
     },
     "general": {
+      "theme": "Theme",
+      "themeDescription": "Choose between bright and dark appearance",
+      "themeBright": "Bright",
+      "themeDark": "Dark",
       "language": "Language",
       "languageDescription": "Select your preferred language"
     },
@@ -177,6 +183,7 @@
   },
   "inspector": {
     "title": "Inspector",
+    "editor": "Editor",
     "longText": "Full Text",
     "citations": "Citations",
     "noCitations": "No citations available",

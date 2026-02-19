@@ -152,6 +152,44 @@ describe('InspectorPanel', () => {
       
       expect(screen.queryByText(/long.text/i)).not.toBeInTheDocument()
     })
+
+    it('renders markdown as read-only by default even when editable handler is provided', () => {
+      render(
+        <InspectorPanel
+          isOpen={true}
+          onClose={vi.fn()}
+          nodeText="**Bold text**"
+          onNodeTextChange={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByTestId('inspector-node-editor')).not.toBeInTheDocument()
+      expect(screen.getByText('Bold text').tagName).toBe('STRONG')
+      expect(screen.getByRole('button', { name: /common\.edit|edit/i })).toBeInTheDocument()
+    })
+
+    it('enters edit mode via Edit button and saves only on Save click', () => {
+      const onNodeTextChange = vi.fn()
+
+      render(
+        <InspectorPanel
+          isOpen={true}
+          onClose={vi.fn()}
+          nodeText="Original"
+          onNodeTextChange={onNodeTextChange}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /common\.edit|edit/i }))
+
+      const editor = screen.getByTestId('inspector-node-editor') as HTMLTextAreaElement
+      fireEvent.change(editor, { target: { value: 'Updated text' } })
+
+      expect(onNodeTextChange).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }))
+      expect(onNodeTextChange).toHaveBeenCalledWith('Updated text')
+    })
   })
 
   describe('Citations section', () => {

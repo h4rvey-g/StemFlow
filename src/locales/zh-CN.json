@@ -23,6 +23,8 @@
     "alignNodes": "对齐节点",
     "beta": "测试版",
     "appName": "StemFlow",
+    "switchToDarkTheme": "切换到深色主题",
+    "switchToBrightTheme": "切换到明亮主题",
     "switchLanguage": "切换语言",
     "ungroup": "取消编组",
     "nodeCount": "{{count}} 个节点"
@@ -77,6 +79,10 @@
       "prompts": "提示词"
     },
     "general": {
+      "theme": "主题",
+      "themeDescription": "选择明亮或深色外观",
+      "themeBright": "明亮",
+      "themeDark": "深色",
       "language": "语言",
       "languageDescription": "选择您的首选语言"
     },
@@ -177,6 +183,7 @@
   },
   "inspector": {
     "title": "检查器",
+    "editor": "编辑器",
     "longText": "全文",
     "citations": "参考文献",
     "noCitations": "无可用参考文献",

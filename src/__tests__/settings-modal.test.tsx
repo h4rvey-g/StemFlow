@@ -10,6 +10,15 @@ import {
   savePromptSettings,
 } from '../lib/prompt-settings'
 
+const setThemeMock = vi.fn()
+
+vi.mock('next-themes', () => ({
+  useTheme: () => ({
+    theme: 'bright',
+    setTheme: setThemeMock,
+  }),
+}))
+
 vi.mock('../lib/api-keys', () => ({
   saveApiKeys: vi.fn(),
   loadApiKeys: vi.fn(),
@@ -32,6 +41,7 @@ describe('SettingsModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    setThemeMock.mockReset()
     ;(loadPromptSettings as Mock).mockReturnValue({ ...DEFAULT_PROMPT_SETTINGS })
     ;(savePromptSettings as Mock).mockReturnValue({ success: true })
     ;(loadApiKeys as Mock).mockResolvedValue({
@@ -237,5 +247,18 @@ describe('SettingsModal', () => {
           'Custom mechanism to validation generation prompt',
       })
     )
+  })
+
+  it('saves selected theme from general tab', async () => {
+    render(<SettingsModal isOpen={true} onClose={onClose} />)
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    const themeSelect = screen.getByLabelText(/Theme|settings\.general\.theme/)
+    await userEvent.selectOptions(themeSelect, 'dark')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save General Settings' }))
+
+    expect(setThemeMock).toHaveBeenCalledWith('dark')
+    expect(onClose).toHaveBeenCalled()
   })
 })

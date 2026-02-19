@@ -13,7 +13,6 @@ export const ValidationNode = memo((props: NodeProps<NodeData>) => {
       title={t('nodes.validation.title')}
       placeholder={t('nodes.validation.placeholder')}
       accentClassName="bg-emerald-500"
-      focusRingClassName="focus:ring-emerald-100"
       nodeType="VALIDATION"
     />
   )

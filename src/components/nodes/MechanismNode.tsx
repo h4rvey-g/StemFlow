@@ -13,7 +13,6 @@ export const MechanismNode = memo((props: NodeProps<NodeData>) => {
       title={t('nodes.mechanism.title')}
       placeholder={t('nodes.mechanism.placeholder')}
       accentClassName="bg-violet-500"
-      focusRingClassName="focus:ring-violet-100"
       nodeType="MECHANISM"
     />
   )

@@ -5,7 +5,7 @@ A local-first, privacy-first infinite canvas for scientific research. StemFlow s
 Everything runs in your browser. Your data stays in IndexedDB. Your API keys stay in localStorage. There is no backend.
 
 ## TODO
-[] Bilingual support (English + Chinese)
+[x] Bilingual support (English + Chinese)
 [x] Separate mechanism and validation prompt
 [] Pin nodes to keep them expanded
 [] Add a "Fold all" and "Expand all" button, which folds/expands all nodes on the canvas except the pinned ones

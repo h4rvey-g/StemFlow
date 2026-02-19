@@ -37,7 +37,7 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
   const nodes = useStore((s) => s.nodes)
-  
+
   const sourceNode = nodes.find((n) => n.id === nodeId)
   const sourceType = sourceNode?.type ?? 'OBSERVATION'
 

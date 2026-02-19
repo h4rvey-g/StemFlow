@@ -4,7 +4,6 @@ import type { NodeProps } from 'reactflow'
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
 
 import { useAiGeneration } from '@/hooks/useAiGeneration'
-import { useAutoResizingTextarea } from '@/hooks/useAutoResizingTextarea'
 import { describeImageWithVision } from '@/lib/ai-service'
 import { gradeNode } from '@/lib/ai-service'
 import { processFileInWorker } from '@/lib/file-processing-client'
@@ -26,7 +25,6 @@ interface ResearchNodeCardProps extends NodeProps<NodeData> {
   title: string
   placeholder: string
   accentClassName: string
-  focusRingClassName: string
   nodeType: VisibleNodeType
 }
 
@@ -46,6 +44,23 @@ const COLLAPSED_TEXT_STYLE: React.CSSProperties = {
   WebkitBoxOrient: 'vertical',
   WebkitLineClamp: TEXT_CLAMP_LINE_THRESHOLD,
   overflow: 'hidden',
+}
+
+function ReadMoreIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      aria-hidden
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {expanded ? <path d="M5 12l5-5 5 5" /> : <path d="M7 5l6 5-6 5" />}
+    </svg>
+  )
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -124,11 +139,9 @@ export function ResearchNodeCard({
   title,
   placeholder,
   accentClassName,
-  focusRingClassName,
   nodeType,
 }: ResearchNodeCardProps) {
   const { t } = useTranslation()
-  const updateNode = useStore((state) => state.updateNode)
   const updateNodeData = useStore((state) => state.updateNodeData)
   const setNodeGrade = useStore((state) => state.setNodeGrade)
   const addNode = useStore((state) => state.addNode)
@@ -168,7 +181,6 @@ export function ResearchNodeCard({
     ]
   )
   const citations = data?.citations ?? []
-  const { textareaRef, syncHeight } = useAutoResizingTextarea(textContent)
 
   const getErrorMessage = useCallback((error: unknown) => {
     return error instanceof Error ? error.message : t('nodes.card.fileProcessingFailed')
@@ -221,7 +233,7 @@ export function ResearchNodeCard({
   }, [isTextExpanded, shouldOfferTextToggle])
 
   useEffect(() => {
-    if (selected || !hasText) {
+    if (!hasText) {
       setShouldOfferTextToggle(false)
       return
     }
@@ -255,7 +267,7 @@ export function ResearchNodeCard({
       resizeObserver?.disconnect()
       window.removeEventListener('resize', evaluateTextOverflow)
     }
-  }, [citations, hasText, selected, textContent])
+  }, [citations, hasText, textContent])
 
   useEffect(() => {
     if (!data?.attachments && data?.fileMetadata) {
@@ -282,12 +294,6 @@ export function ResearchNodeCard({
     isTextCollapsed,
     updateNodeInternals,
   ])
-
-  useEffect(() => {
-    if (selected) {
-      syncHeight(textareaRef.current)
-    }
-  }, [selected, syncHeight, textareaRef])
 
   useEffect(() => {
     let isActive = true
@@ -327,10 +333,6 @@ export function ResearchNodeCard({
       localObjectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl))
     }
   }, [attachments])
-
-  const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    updateNode(id, { data: { text_content: event.target.value } })
-  }
 
   const handleFileUpload = useCallback(async (files: File[]) => {
     if (files.length === 0) return
@@ -472,7 +474,7 @@ export function ResearchNodeCard({
   }, [addEdge, addNode, id, nodeType])
 
   return (
-    <div className="relative w-[320px] overflow-hidden rounded-xl bg-white py-3 pl-4 pr-3 shadow-[0_8px_24px_rgba(15,23,42,0.12)]">
+    <div className="relative w-[320px] overflow-hidden rounded-xl bg-white py-3 pl-4 pr-3 shadow-[0_8px_24px_rgba(15,23,42,0.12)] dark:bg-slate-800 dark:shadow-[0_10px_26px_rgba(2,6,23,0.45)]">
       <div className={`pointer-events-none absolute inset-y-0 left-0 w-1.5 ${accentClassName}`} aria-hidden />
       <Handle
         type="target"
@@ -481,56 +483,53 @@ export function ResearchNodeCard({
         isConnectable={isConnectable}
         style={PRIMARY_HANDLE_STYLE}
       />
-      <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</div>
+      <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-300">{title}</div>
       {hasSummaryTitle ? (
-        <div className="mb-1 whitespace-pre-wrap break-words text-base font-semibold leading-6 text-slate-700">
+        <div className="mb-1 whitespace-pre-wrap break-words text-base font-semibold leading-6 text-slate-700 dark:text-slate-100">
           {summaryTitle}
         </div>
       ) : null}
-      {selected ? (
-        <textarea
-          ref={textareaRef}
-          className={`nodrag w-full resize-none overflow-hidden rounded-sm bg-transparent py-0 text-sm leading-7 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${focusRingClassName}`}
-          value={textContent}
-          onChange={handleChange}
-          onInput={(event) => syncHeight(event.currentTarget)}
-          placeholder={placeholder}
-          rows={1}
-        />
-      ) : (
-        <div className="relative space-y-1">
+      <div className="relative space-y-1">
+        <div
+          ref={textMeasurementRef}
+          className="pointer-events-none absolute inset-x-0 top-0 -z-10 invisible whitespace-pre-wrap break-words text-sm leading-7"
+          aria-hidden
+        >
+          {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
+        </div>
+        <div className="relative">
           <div
-            ref={textMeasurementRef}
-            className="pointer-events-none absolute inset-x-0 top-0 -z-10 invisible whitespace-pre-wrap break-words text-sm leading-7"
-            aria-hidden
-          >
-            {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
-          </div>
-          <div
-            className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700' : 'text-slate-400'}`}
+            className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-400'}`}
             style={isTextCollapsed ? COLLAPSED_TEXT_STYLE : undefined}
           >
             {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
           </div>
-          {shouldOfferTextToggle ? (
-            <button
-              type="button"
-              className="nodrag text-xs font-semibold text-slate-500 transition-colors hover:text-slate-700"
-              onClick={() => {
-                if (isTextCollapsed) {
-                  window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
-                    detail: { nodeId: id }
-                  }))
-                } else {
-                  setIsTextExpanded(false)
-                }
-              }}
-            >
-              {isTextCollapsed ? t('nodes.card.readMore') : t('nodes.card.showLess')}
-            </button>
+          {isTextCollapsed ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-white/0 via-white/80 to-white dark:from-slate-800/0 dark:via-slate-800/80 dark:to-slate-800"
+            />
           ) : null}
         </div>
-      )}
+        {shouldOfferTextToggle ? (
+          <button
+            type="button"
+            className="nodrag mt-0.5 inline-flex w-full items-center justify-end gap-1.5 rounded-md px-1 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-slate-100"
+            onClick={() => {
+              if (isTextCollapsed) {
+                window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
+                  detail: { nodeId: id }
+                }))
+              } else {
+                setIsTextExpanded(false)
+              }
+            }}
+          >
+            <ReadMoreIcon expanded={!isTextCollapsed} />
+            <span>{isTextCollapsed ? t('nodes.card.readMore') : t('nodes.card.showLess')}</span>
+          </button>
+        ) : null}
+      </div>
       {citations.length > 0 ? <ReferencesSection citations={citations} /> : null}
 
       {attachments.length > 0 ? (
@@ -539,12 +538,12 @@ export function ResearchNodeCard({
             const thumbnailUrl = thumbnailUrls[attachment.id]
             return (
               <div key={attachment.id} className="group relative max-w-full">
-                <div className="flex max-w-[240px] items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-700 shadow-sm">
+                <div className="flex max-w-[240px] items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-700 shadow-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
                   <p className="truncate font-semibold">{attachment.name}</p>
-                  <p className="shrink-0 text-[10px] text-slate-500">{formatFileSize(attachment.size)}</p>
+                  <p className="shrink-0 text-[10px] text-slate-500 dark:text-slate-300">{formatFileSize(attachment.size)}</p>
                   <button
                     type="button"
-                    className="shrink-0 text-[12px] font-semibold leading-none text-slate-500 transition-colors hover:text-slate-700"
+                    className="shrink-0 text-[12px] font-semibold leading-none text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                     onClick={() => {
                       void handleRemoveFile(attachment.id)
                     }}
@@ -554,20 +553,20 @@ export function ResearchNodeCard({
                   </button>
                 </div>
 
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-64 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 opacity-0 shadow-lg transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                  <p className="truncate text-[11px] font-semibold text-slate-800">{attachment.name}</p>
-                  <p className="mt-0.5 text-[10px] text-slate-500">{formatFileSize(attachment.size)}</p>
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-64 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 opacity-0 shadow-lg transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 dark:border-slate-600 dark:bg-slate-800">
+                  <p className="truncate text-[11px] font-semibold text-slate-800 dark:text-slate-100">{attachment.name}</p>
+                  <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-300">{formatFileSize(attachment.size)}</p>
 
                   {thumbnailUrl ? (
                     <img
                       src={thumbnailUrl}
                       alt={t('nodes.card.previewFor', { name: attachment.name })}
-                      className="mt-2 h-24 w-full rounded-md border border-slate-200 object-cover"
+                      className="mt-2 h-24 w-full rounded-md border border-slate-200 object-cover dark:border-slate-600"
                     />
                   ) : null}
 
                   {attachment.processingStatus === 'processing' ? (
-                    <p className="mt-2 text-[11px] text-slate-500">{t('nodes.card.processingFile')}</p>
+                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-300">{t('nodes.card.processingFile')}</p>
                   ) : null}
 
                   {attachment.processingError ? (
@@ -575,13 +574,13 @@ export function ResearchNodeCard({
                   ) : null}
 
                   {attachment.imageDescription ? (
-                    <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-700">
+                    <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-700 dark:bg-slate-700 dark:text-slate-100">
                       {attachment.imageDescription}
                     </p>
                   ) : null}
 
                   {attachment.textExcerpt ? (
-                    <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-700">
+                    <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-700 dark:bg-slate-700 dark:text-slate-100">
                       {attachment.textExcerpt}
                     </p>
                   ) : null}
@@ -594,13 +593,13 @@ export function ResearchNodeCard({
 
       {selected ? (
         <div className="nodrag mt-2 space-y-2">
-          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 dark:border-amber-700 dark:bg-amber-900/30">
             <div className="flex items-center gap-0.5" role="group" aria-label={t('nodes.card.nodeGrade')}>
               {STAR_VALUES.map((value) => (
                 <button
                   key={value}
                   type="button"
-                  className="rounded-sm text-slate-600 transition-colors hover:text-amber-500"
+                  className="rounded-sm text-slate-600 transition-colors hover:text-amber-500 dark:text-slate-300 dark:hover:text-amber-300"
                   aria-label={t('nodes.card.setGrade', { value, plural: value === 1 ? '' : 's' })}
                   onClick={() => setNodeGrade(id, value)}
                 >
@@ -610,7 +609,7 @@ export function ResearchNodeCard({
             </div>
             <button
               type="button"
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-700 dark:bg-slate-700 dark:text-amber-200 dark:hover:bg-slate-600"
               onClick={() => {
                 void handleAiGrade()
               }}
@@ -632,7 +631,7 @@ export function ResearchNodeCard({
 
             <button
               type="button"
-              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600 dark:hover:bg-slate-600"
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
             >
@@ -653,7 +652,7 @@ export function ResearchNodeCard({
             <button
               ref={aiButtonRef}
               type="button"
-              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"
+              className="rounded-md bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600 dark:hover:bg-slate-600"
               aria-label={t('nodes.card.aiActions')}
               onClick={() => setAiOpen((value) => !value)}
             >

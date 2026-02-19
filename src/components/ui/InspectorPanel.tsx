@@ -1,5 +1,3 @@
-"use client"
-
 import React, { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -11,18 +9,38 @@ interface InspectorPanelProps {
   onClose: () => void
   children?: ReactNode
   nodeText?: string
+  nodePlaceholder?: string
+  onNodeTextChange?: (nextText: string) => void
   citations?: Citation[]
 }
 
-export const InspectorPanel = ({ isOpen, onClose, children, nodeText, citations = [] }: InspectorPanelProps) => {
+export const InspectorPanel = ({
+  isOpen,
+  onClose,
+  children,
+  nodeText,
+  nodePlaceholder,
+  onNodeTextChange,
+  citations = [],
+}: InspectorPanelProps) => {
   const { t } = useTranslation()
   const [isCitationsExpanded, setIsCitationsExpanded] = useState(false)
+  const [isEditingText, setIsEditingText] = useState(false)
+  const [draftNodeText, setDraftNodeText] = useState(nodeText ?? '')
 
   useEffect(() => {
     if (!isOpen) return
 
     setIsCitationsExpanded(false)
+    setIsEditingText(false)
+    setDraftNodeText(nodeText ?? '')
   }, [isOpen])
+
+  useEffect(() => {
+    if (isEditingText) return
+
+    setDraftNodeText(nodeText ?? '')
+  }, [isEditingText, nodeText])
 
   useEffect(() => {
     if (!isOpen) return
@@ -58,14 +76,14 @@ export const InspectorPanel = ({ isOpen, onClose, children, nodeText, citations 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
       <div
         data-testid="inspector-panel"
-        className="flex h-full w-96 flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
+        className="flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
@@ -80,17 +98,69 @@ export const InspectorPanel = ({ isOpen, onClose, children, nodeText, citations 
             ✕
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {nodeText && nodeText.trim().length > 0 && (
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          {onNodeTextChange || (nodeText && nodeText.trim().length > 0) ? (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                {t('inspector.longText')}
-              </h3>
-              <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
-                {renderMarkdownEmphasis(nodeText, citations)}
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {isEditingText ? t('inspector.editor') : t('inspector.longText')}
+                </h3>
+                {onNodeTextChange ? (
+                  isEditingText ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                        onClick={() => {
+                          setDraftNodeText(nodeText ?? '')
+                          setIsEditingText(false)
+                        }}
+                      >
+                        {t('common.cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md bg-indigo-500 px-2 py-1 text-xs font-semibold text-white transition-colors hover:bg-indigo-600"
+                        onClick={() => {
+                          onNodeTextChange(draftNodeText)
+                          setIsEditingText(false)
+                        }}
+                      >
+                        {t('common.save')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                      onClick={() => {
+                        setDraftNodeText(nodeText ?? '')
+                        setIsEditingText(true)
+                      }}
+                    >
+                      {t('common.edit')}
+                    </button>
+                  )
+                ) : null}
               </div>
+
+              {onNodeTextChange && isEditingText ? (
+                <textarea
+                  data-testid="inspector-node-editor"
+                  className="w-full min-h-[220px] resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  value={draftNodeText}
+                  placeholder={nodePlaceholder ?? ''}
+                  onChange={(event) => setDraftNodeText(event.target.value)}
+                />
+              ) : (
+                <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                  {nodeText && nodeText.trim().length > 0
+                    ? renderMarkdownEmphasis(nodeText, citations)
+                    : nodePlaceholder ?? ''}
+                </div>
+              )}
             </div>
-          )}
+          ) : null}
           <div>
             <button
               type="button"

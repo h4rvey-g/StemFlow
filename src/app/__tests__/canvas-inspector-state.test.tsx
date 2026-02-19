@@ -173,7 +173,7 @@ describe('Canvas Inspector State Contract', () => {
     expect(inspector).not.toBeInTheDocument()
   })
 
-  it('opens inspector when a node is selected', () => {
+  it('keeps inspector closed when a node is selected', () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -188,10 +188,10 @@ describe('Canvas Inspector State Contract', () => {
     render(<Page />)
     
     const inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
+    expect(inspector).not.toBeInTheDocument()
   })
 
-  it('syncs inspector content when selected node changes', () => {
+  it('keeps inspector closed when selected node changes', () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -206,8 +206,7 @@ describe('Canvas Inspector State Contract', () => {
     const { rerender } = render(<Page />)
     
     let inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
-    expect(inspector).toHaveTextContent('First node')
+    expect(inspector).not.toBeInTheDocument()
 
     // Change selected node
     state.nodes = [
@@ -230,11 +229,51 @@ describe('Canvas Inspector State Contract', () => {
     rerender(<Page />)
     
     inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
-    expect(inspector).toHaveTextContent('Second node')
+    expect(inspector).not.toBeInTheDocument()
   })
 
-  it('closes inspector when no node is selected', () => {
+  it('edits node content from inspector after opening via read-more intent', async () => {
+    const state = useStore() as StoreState
+    state.nodes = [
+      {
+        id: 'node-1',
+        type: 'OBSERVATION',
+        position: { x: 0, y: 0 },
+        data: { text_content: 'Editable text' },
+        selected: false,
+      },
+    ]
+
+    render(<Page />)
+
+    const event = new CustomEvent('stemflow:read-more-intent', {
+      detail: { nodeId: 'node-1' }
+    })
+    window.dispatchEvent(event)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inspector-panel')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('inspector-node-editor')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /common\.edit|edit/i }))
+
+    const editor = screen.getByTestId('inspector-node-editor') as HTMLTextAreaElement
+    expect(editor.value).toBe('Editable text')
+
+    fireEvent.change(editor, { target: { value: 'Updated from inspector' } })
+
+    expect(state.updateNode).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /common\.save|save/i }))
+
+    expect(state.updateNode).toHaveBeenCalledWith('node-1', {
+      data: { text_content: 'Updated from inspector' },
+    })
+  })
+
+  it('does not auto-open inspector when selection is cleared', () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -249,7 +288,7 @@ describe('Canvas Inspector State Contract', () => {
     const { rerender } = render(<Page />)
     
     let inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
+    expect(inspector).not.toBeInTheDocument()
 
     state.nodes = [
       {
@@ -330,7 +369,7 @@ describe('Canvas Inspector State Contract', () => {
     expect(inspector).toHaveTextContent('Long text content that triggers read more')
   })
 
-  it('closes inspector without deselecting node when Esc is pressed', () => {
+  it('closes inspector without deselecting node when Esc is pressed', async () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -343,6 +382,15 @@ describe('Canvas Inspector State Contract', () => {
     ]
 
     render(<Page />)
+
+    const event = new CustomEvent('stemflow:read-more-intent', {
+      detail: { nodeId: 'node-1' }
+    })
+    window.dispatchEvent(event)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inspector-panel')).toBeInTheDocument()
+    })
     
     let inspector = screen.queryByTestId('inspector-panel')
     expect(inspector).toBeInTheDocument()
@@ -355,7 +403,7 @@ describe('Canvas Inspector State Contract', () => {
     expect(state.nodes[0].selected).toBe(true)
   })
 
-  it('closes inspector when selected node is deleted', () => {
+  it('closes inspector when selected node is deleted', async () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -369,6 +417,15 @@ describe('Canvas Inspector State Contract', () => {
 
     const { rerender } = render(<Page />)
     
+    const event = new CustomEvent('stemflow:read-more-intent', {
+      detail: { nodeId: 'node-1' }
+    })
+    window.dispatchEvent(event)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inspector-panel')).toBeInTheDocument()
+    })
+
     let inspector = screen.queryByTestId('inspector-panel')
     expect(inspector).toBeInTheDocument()
 
@@ -380,7 +437,7 @@ describe('Canvas Inspector State Contract', () => {
     expect(inspector).not.toBeInTheDocument()
   })
 
-  it('closes inspector when selected node is removed from array', () => {
+  it('closes inspector when selected node is removed from array', async () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -401,6 +458,15 @@ describe('Canvas Inspector State Contract', () => {
 
     const { rerender } = render(<Page />)
     
+    const event = new CustomEvent('stemflow:read-more-intent', {
+      detail: { nodeId: 'node-1' }
+    })
+    window.dispatchEvent(event)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inspector-panel')).toBeInTheDocument()
+    })
+
     let inspector = screen.queryByTestId('inspector-panel')
     expect(inspector).toBeInTheDocument()
     expect(inspector).toHaveTextContent('First')
@@ -421,7 +487,7 @@ describe('Canvas Inspector State Contract', () => {
     expect(inspector).not.toBeInTheDocument()
   })
 
-  it('closes inspector when multiple nodes are selected simultaneously', () => {
+  it('does not auto-open inspector when multiple nodes are selected simultaneously', () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -433,35 +499,13 @@ describe('Canvas Inspector State Contract', () => {
       },
     ]
 
-    const { rerender } = render(<Page />)
+    render(<Page />)
 
-    let inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
-
-    state.nodes = [
-      {
-        id: 'node-1',
-        type: 'OBSERVATION',
-        position: { x: 0, y: 0 },
-        data: { text_content: 'First observation' },
-        selected: true,
-      },
-      {
-        id: 'node-2',
-        type: 'MECHANISM',
-        position: { x: 100, y: 0 },
-        data: { text_content: 'Second mechanism' },
-        selected: true,
-      },
-    ]
-
-    rerender(<Page />)
-
-    inspector = screen.queryByTestId('inspector-panel')
+    const inspector = screen.queryByTestId('inspector-panel')
     expect(inspector).not.toBeInTheDocument()
   })
 
-  it('re-opens inspector when multi-select reduces to single selection', () => {
+  it('does not auto-open inspector when multi-select reduces to single selection', () => {
     const state = useStore() as StoreState
     state.nodes = [
       {
@@ -505,8 +549,7 @@ describe('Canvas Inspector State Contract', () => {
     rerender(<Page />)
 
     inspector = screen.queryByTestId('inspector-panel')
-    expect(inspector).toBeInTheDocument()
-    expect(inspector).toHaveTextContent('First observation')
+    expect(inspector).not.toBeInTheDocument()
   })
 
   it('does not persist inspector state to IndexedDB', () => {

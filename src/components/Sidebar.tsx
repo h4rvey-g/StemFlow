@@ -141,14 +141,14 @@ export const Sidebar = memo(() => {
   }
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
       <div className="flex-1 overflow-y-auto">
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">{t('sidebar.projects')}</div>
+            <div className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{t('sidebar.projects')}</div>
             <button
               onClick={handleCreateProject}
-              className="rounded-md bg-slate-100 p-1 text-slate-600 hover:bg-slate-200 hover:text-slate-800"
+              className="rounded-md bg-slate-100 p-1 text-slate-600 hover:bg-slate-200 hover:text-slate-800 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
               title={t('sidebar.newProject')}
             >
               <PlusIcon />
@@ -160,8 +160,8 @@ export const Sidebar = memo(() => {
                 key={project.id}
                 className={`group relative flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
                   activeProjectId === project.id
-                    ? 'bg-slate-100 font-medium text-slate-900'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-slate-100'
                 }`}
                 onClick={() => setActiveProject(project.id)}
               >
@@ -174,7 +174,7 @@ export const Sidebar = memo(() => {
                       onChange={(e) => setEditName(e.target.value)}
                       onBlur={handleSaveEdit}
                       onKeyDown={handleKeyDown}
-                      className="w-full rounded border border-slate-300 bg-white px-1 py-0.5 text-xs focus:border-blue-500 focus:outline-none"
+                      className="w-full rounded border border-slate-300 bg-white px-1 py-0.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       onClick={(e) => e.stopPropagation()}
                     />
                     <button
@@ -199,7 +199,7 @@ export const Sidebar = memo(() => {
                     {projects.length > 1 && (
                       <button
                         onClick={(e) => handleDeleteProject(e, project.id)}
-                        className="hidden text-slate-400 hover:text-red-500 group-hover:block"
+                        className="hidden text-slate-400 hover:text-red-500 group-hover:block dark:text-slate-500 dark:hover:text-red-400"
                         title={t('sidebar.deleteProject')}
                       >
                         <XIcon />
@@ -213,8 +213,8 @@ export const Sidebar = memo(() => {
         </div>
 
         <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm font-semibold uppercase tracking-wide text-slate-600">{t('sidebar.nodesHeading')}</div>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{t('sidebar.dragBadge')}</span>
+          <div className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{t('sidebar.nodesHeading')}</div>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">{t('sidebar.dragBadge')}</span>
         </div>
 
         <div
@@ -247,15 +247,15 @@ export const Sidebar = memo(() => {
           {t('sidebar.nodes.validation')}
         </div>
 
-        <div className="mt-4 text-xs text-slate-500">
+        <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
           {t('sidebar.nodesHelper')}
         </div>
       </div>
 
-        <div className="border-t border-slate-200 pt-4">
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-200 hover:bg-slate-100"
+            className="flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-200 hover:bg-slate-100 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-800"
             data-testid="sidebar-settings"
           >
             <SettingsIcon />

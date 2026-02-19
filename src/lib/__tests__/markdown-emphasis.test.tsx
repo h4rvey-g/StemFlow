@@ -8,7 +8,9 @@ describe('renderMarkdownEmphasis', () => {
   it('renders bold and italic markers as semantic tags', () => {
     render(<p>{renderMarkdownEmphasis('Use **critical** and *supporting* terms.')}</p>)
 
-    expect(screen.getByText('critical').tagName).toBe('STRONG')
+    const boldText = screen.getByText('critical')
+    expect(boldText.tagName).toBe('STRONG')
+    expect(boldText).toHaveClass('text-inherit')
     expect(screen.getByText('supporting').tagName).toBe('EM')
   })
 

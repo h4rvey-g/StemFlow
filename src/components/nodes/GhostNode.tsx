@@ -64,7 +64,7 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
 
   return (
     <div
-      className={`w-[320px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80`}
+      className={`w-[320px] rounded-xl border-2 border-dashed border-slate-300 bg-white/70 p-3 shadow-lg backdrop-blur ${colorClass} opacity-80 dark:border-slate-600 dark:bg-slate-800/85`}
       style={{ zIndex: 9999 }}
     >
       <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
@@ -74,12 +74,12 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
       </div>
 
       {summary_title?.trim() ? (
-        <div className="mb-1 whitespace-pre-wrap break-words text-xs font-semibold text-slate-700">
+        <div className="mb-1 whitespace-pre-wrap break-words text-xs font-semibold text-slate-700 dark:text-slate-100">
           {summary_title}
         </div>
       ) : null}
       
-      <div className="mb-3 min-h-[3rem] whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
+      <div className="mb-3 min-h-[3rem] whitespace-pre-wrap break-words text-sm leading-6 text-slate-600 dark:text-slate-200">
         {renderMarkdownEmphasis(text_content, citations)}
       </div>
 
