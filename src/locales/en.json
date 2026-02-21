@@ -178,7 +178,16 @@
       "suggestValidation": "Suggest Validation",
       "critique": "Critique",
       "expand": "Expand",
-      "generateQuestions": "Generate Questions"
+      "generateQuestions": "Generate Questions",
+      "translation": "Translation"
+    },
+    "translation": {
+      "languageLabel": "Target language",
+      "translate": "Translate",
+      "languages": {
+        "zhCN": "简体中文",
+        "en": "English"
+      }
     },
     "status": {
       "active": "Active: {{action}}"

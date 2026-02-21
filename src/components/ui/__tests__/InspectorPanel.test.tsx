@@ -145,6 +145,31 @@ describe('InspectorPanel', () => {
       expect(screen.getByText('Item two')).toBeInTheDocument()
     })
 
+    it('renders translated content below original text in inspector', () => {
+      render(
+        <InspectorPanel
+          isOpen={true}
+          onClose={vi.fn()}
+          nodeText="Original content"
+          translatedTitle="Translated title"
+          translatedTextContent="1. **Bold translated**\n2. translated line"
+          translatedLanguage="en"
+        />
+      )
+
+      const original = screen.getByText('Original content')
+      const translatedTitle = screen.getByText('Translated title')
+      expect(original).toBeInTheDocument()
+      expect(translatedTitle).toBeInTheDocument()
+      const contentBlock = original.closest('div')?.parentElement
+      const contentText = contentBlock?.textContent ?? ''
+      expect(contentText.indexOf('Original content')).toBeGreaterThanOrEqual(0)
+      expect(contentText.indexOf('Translated title')).toBeGreaterThan(contentText.indexOf('Original content'))
+      expect(screen.getByText('Bold translated').tagName).toBe('STRONG')
+      expect(contentText).toContain('translated line')
+      expect(screen.getByText('English')).toBeInTheDocument()
+    })
+
     it('does not render long text section when nodeText is empty', () => {
       render(
         <InspectorPanel isOpen={true} onClose={vi.fn()} nodeText="" />

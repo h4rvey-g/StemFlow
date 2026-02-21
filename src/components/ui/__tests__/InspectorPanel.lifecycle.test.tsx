@@ -39,6 +39,7 @@ vi.mock('@/hooks/useAi', () => ({
     error: mockAiState.error,
     currentAction: mockAiState.currentAction,
     executeAction: vi.fn(),
+    translateNodeContent: vi.fn(),
     cancel: vi.fn(),
   }),
 }))

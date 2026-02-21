@@ -79,6 +79,11 @@ const enTranslations = {
   'popover.actions.critique': 'Critique',
   'popover.actions.expand': 'Expand',
   'popover.actions.generateQuestions': 'Generate Questions',
+  'popover.actions.translation': 'Translation',
+  'popover.translation.languageLabel': 'Target language',
+  'popover.translation.translate': 'Translate',
+  'popover.translation.languages.zhCN': '简体中文',
+  'popover.translation.languages.en': 'English',
   'popover.status.active': 'Active: {{action}}',
 }
 

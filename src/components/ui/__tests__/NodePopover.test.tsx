@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { NodePopover } from '@/components/ui/NodePopover'
 
 const mockExecuteAction = vi.fn()
+const mockTranslateNodeContent = vi.fn()
 const mockCancel = vi.fn()
 
 vi.mock('@/hooks/useAi', () => ({
@@ -14,6 +15,7 @@ vi.mock('@/hooks/useAi', () => ({
     error: null,
     currentAction: null,
     executeAction: mockExecuteAction,
+    translateNodeContent: mockTranslateNodeContent,
     cancel: mockCancel,
   }),
 }))
@@ -39,6 +41,7 @@ vi.mock('@/stores/useStore', () => ({
 describe('NodePopover', () => {
   beforeEach(() => {
     mockExecuteAction.mockReset()
+    mockTranslateNodeContent.mockReset()
     mockCancel.mockReset()
   })
 
@@ -126,5 +129,29 @@ describe('NodePopover', () => {
     )
 
     expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
+  })
+
+  it('translation action opens language dropdown and runs translation', async () => {
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
+
+    render(
+      <NodePopover
+        nodeId="n1"
+        nodeType="OBSERVATION"
+        isOpen={true}
+        onClose={() => {}}
+        anchorEl={anchor}
+      />
+    )
+
+    fireEvent.click(await screen.findByText('Translation'))
+    expect(await screen.findByLabelText('Target language')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Translate'))
+    await waitFor(() => {
+      expect(mockTranslateNodeContent).toHaveBeenCalledWith('zh-CN')
+    })
   })
 })

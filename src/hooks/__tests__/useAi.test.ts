@@ -285,4 +285,70 @@ describe('useAi', () => {
     const payload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as { stream?: boolean }
     expect(payload.stream).toBe(false)
   })
+
+  it('parses wrapped translation JSON and persists translated fields', async () => {
+    vi.spyOn(apiKeys, 'loadApiKeys').mockResolvedValue({
+      provider: 'openai',
+      openaiKey: 'sk-test',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: 'gpt-4o',
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: 'gpt-4o-mini',
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: true,
+    })
+
+    useStore.setState({
+      nodes: [
+        {
+          id: NODE_ID,
+          type: 'OBSERVATION',
+          data: {
+            summary_title: 'Calcium signaling',
+            text_content: 'ANXA7 loss disrupts membrane repair.',
+          },
+          position: { x: 100, y: 100 },
+        },
+      ],
+      edges: [],
+      addNode: mockAddNode,
+      addEdge: mockAddEdge,
+    })
+
+    const wrappedJson = [
+      'Here is the translation:',
+      '```json',
+      '{"translatedTitle":"钙信号失调","translatedContent":"1. **钙稳态破坏**\\n2. **膜修复失败**"}',
+      '```',
+    ].join('\n')
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        streamFromStrings([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: wrappedJson } }] })}\n`,
+          'data: [DONE]\n',
+        ]),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      )
+    )
+
+    const { result } = renderHook(() => useAi(NODE_ID))
+
+    await act(async () => {
+      await result.current.translateNodeContent('zh-CN')
+    })
+
+    const payload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as { model?: string }
+    expect(payload.model).toBe('gpt-4o-mini')
+
+    const translatedNode = useStore.getState().nodes.find((node) => node.id === NODE_ID)
+    expect(translatedNode?.data.translated_language).toBe('zh-CN')
+    expect(translatedNode?.data.translated_title).toBe('钙信号失调')
+    expect(translatedNode?.data.translated_text_content).toBe('1. **钙稳态破坏**\n2. **膜修复失败**')
+  })
 })

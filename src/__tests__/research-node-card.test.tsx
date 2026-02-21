@@ -130,4 +130,24 @@ describe('ResearchNodeCard', () => {
     expect(screen.getByText('Fatal error')).toBeInTheDocument()
     expect(screen.queryByTestId('node-generation-retry')).not.toBeInTheDocument()
   })
+
+  it('does not render translated output in canvas node view', () => {
+    const props = {
+      ...defaultProps,
+      data: {
+        text_content: 'Original content',
+        translated_language: 'en' as const,
+        translated_title: 'Translated title',
+        translated_text_content: 'Translated content',
+      } as NodeData,
+    }
+
+    renderWithProvider(<ResearchNodeCard {...props} />)
+
+    expect(screen.getAllByText('Original content').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Translated title')).not.toBeInTheDocument()
+    expect(screen.queryByText('Translated content')).not.toBeInTheDocument()
+    expect(screen.queryByText('English')).not.toBeInTheDocument()
+  })
+
 })

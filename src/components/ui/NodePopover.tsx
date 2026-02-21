@@ -9,6 +9,8 @@ import type { NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 import { StreamingText } from '@/components/ui/StreamingText'
 import { useTranslation } from 'react-i18next'
 
+type TranslationLanguage = 'zh-CN' | 'en'
+
 type Props = {
   nodeId: string
   nodeType: Exclude<NodeType, 'GHOST'>
@@ -17,7 +19,7 @@ type Props = {
   anchorEl: HTMLElement
 }
 
-const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions']
+const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation']
 
 const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
   summarize: 'summarize',
@@ -25,6 +27,7 @@ const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
   critique: 'critique',
   expand: 'expand',
   questions: 'generateQuestions',
+  translation: 'translation',
 }
 
 const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
@@ -33,13 +36,15 @@ const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
     : ACTION_TRANSLATION_KEYS[action]
 
 export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Props) {
-  const { isLoading, streamingText, error, executeAction, cancel } = useAi(nodeId)
+  const { isLoading, streamingText, error, executeAction, translateNodeContent, cancel } = useAi(nodeId)
   const { t } = useTranslation()
 
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
 
   const [activeAction, setActiveAction] = useState<AiAction | null>(null)
+  const [translationLanguage, setTranslationLanguage] = useState<TranslationLanguage>('zh-CN')
+  const [showTranslationLanguagePicker, setShowTranslationLanguagePicker] = useState(false)
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
 
   useEffect(() => {
@@ -52,8 +57,20 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
   if (!isOpen || !rect) return null
 
   const runAction = async (action: AiAction) => {
+    if (action === 'translation') {
+      setActiveAction(action)
+      setShowTranslationLanguagePicker(true)
+      return
+    }
+
+    setShowTranslationLanguagePicker(false)
     setActiveAction(action)
     await executeAction(action, undefined, { createNodeOnComplete: false })
+  }
+
+  const runTranslation = async () => {
+    setActiveAction('translation')
+    await translateNodeContent(translationLanguage)
   }
 
   const applyResult = () => {
@@ -144,8 +161,42 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
           })}
         </div>
 
+        {showTranslationLanguagePicker ? (
+          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+            <label className="mb-1 block text-xs font-medium text-slate-700" htmlFor={`translation-language-${nodeId}`}>
+              {t('popover.translation.languageLabel')}
+            </label>
+            <div className="flex items-center gap-2">
+              <select
+                id={`translation-language-${nodeId}`}
+                className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+                value={translationLanguage}
+                onChange={(event) => {
+                  setTranslationLanguage(event.target.value as TranslationLanguage)
+                }}
+                disabled={isLoading}
+              >
+                <option value="zh-CN">{t('popover.translation.languages.zhCN')}</option>
+                <option value="en">{t('popover.translation.languages.en')}</option>
+              </select>
+              <button
+                type="button"
+                className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+                onClick={() => {
+                  void runTranslation()
+                }}
+                disabled={isLoading}
+              >
+                {t('popover.translation.translate')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-3">
-          <StreamingText text={streamingText} isLoading={isLoading} />
+          {activeAction !== 'translation' && (streamingText || isLoading) ? (
+            <StreamingText text={streamingText} isLoading={isLoading} />
+          ) : null}
           {error ? (
             <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error.message}
@@ -166,7 +217,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
             <button
               type="button"
               className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
-              disabled={!streamingText.trim()}
+              disabled={!streamingText.trim() || activeAction === 'translation'}
               onClick={applyResult}
             >
               {t('common.apply')}

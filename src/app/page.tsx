@@ -1079,6 +1079,9 @@ function Canvas() {
           isOpen={isInspectorOpen} 
           onClose={() => setInspectorNodeId(null)}
           nodeText={inspectorNode?.data.text_content}
+          translatedTitle={inspectorNode?.data.translated_title}
+          translatedTextContent={inspectorNode?.data.translated_text_content}
+          translatedLanguage={inspectorNode?.data.translated_language}
           nodePlaceholder={inspectorPlaceholder}
           onNodeTextChange={inspectorNode ? handleInspectorNodeTextChange : undefined}
           citations={inspectorNode?.data.citations}

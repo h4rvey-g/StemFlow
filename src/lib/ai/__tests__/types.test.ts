@@ -61,7 +61,7 @@ describe('ai service types', () => {
 
   it('exports expected action union', () => {
     expectTypeOf<AiAction>().toEqualTypeOf<
-      'summarize' | 'suggest-mechanism' | 'critique' | 'expand' | 'questions'
+      'summarize' | 'suggest-mechanism' | 'critique' | 'expand' | 'questions' | 'translation'
     >()
   })
 

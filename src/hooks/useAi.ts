@@ -72,6 +72,135 @@ const toModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKe
   return keys.geminiModel ?? DEFAULT_GEMINI_MODEL
 }
 
+const toFastModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadApiKeys>>): string => {
+  if (provider === 'openai' || provider === 'openai-compatible') {
+    return keys.openaiFastModel ?? keys.openaiModel ?? DEFAULT_OPENAI_MODEL
+  }
+  if (provider === 'anthropic') {
+    return keys.anthropicFastModel ?? keys.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL
+  }
+  return keys.geminiFastModel ?? keys.geminiModel ?? DEFAULT_GEMINI_MODEL
+}
+
+const getStreamParser = (provider: AiProvider) => {
+  if (provider === 'gemini') return parseGeminiStream
+  if (provider === 'anthropic') return parseAnthropicStream
+  return parseOpenAIStream
+}
+
+const requestAiText = async (
+  params: {
+    provider: AiProvider
+    apiKey: string
+    model: string
+    messages: AiMessage[]
+    stream: boolean
+    openaiBaseUrl?: string | null
+  },
+  onChunk: (text: string) => void,
+  signal: AbortSignal
+): Promise<string> => {
+  const { provider, apiKey, model, messages, stream, openaiBaseUrl } = params
+
+  const response = await fetch(`/api/ai/${provider}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      model,
+      messages,
+      stream,
+      ...(provider === 'openai' || provider === 'openai-compatible'
+        ? { baseUrl: openaiBaseUrl ?? undefined }
+        : {}),
+    }),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new AiErrorClass('AI request failed', provider, String(response.status))
+  }
+
+  let aggregated = ''
+
+  if (stream) {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new AiErrorClass('AI stream unavailable', provider)
+    }
+
+    const parser = getStreamParser(provider)
+    for await (const chunk of parser(reader)) {
+      if (chunk.done) break
+      aggregated += chunk.text
+      onChunk(chunk.text)
+    }
+  } else {
+    const json = (await response.json()) as { text?: string }
+    const text = typeof json.text === 'string' ? json.text : ''
+    if (text) {
+      aggregated = text
+      onChunk(text)
+    }
+  }
+
+  return aggregated
+}
+
+type TranslationLanguage = 'zh-CN' | 'en'
+
+type TranslationResult = {
+  translatedTitle: string
+  translatedContent: string
+}
+
+const tryParseTranslationJson = (candidate: string): TranslationResult | null => {
+  try {
+    const parsed = JSON.parse(candidate) as {
+      translatedTitle?: unknown
+      translatedContent?: unknown
+    }
+    return {
+      translatedTitle: typeof parsed.translatedTitle === 'string' ? parsed.translatedTitle.trim() : '',
+      translatedContent: typeof parsed.translatedContent === 'string' ? parsed.translatedContent.trim() : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+const parseTranslationResult = (rawText: string): TranslationResult => {
+  const trimmed = rawText.trim()
+  if (!trimmed) {
+    return { translatedTitle: '', translatedContent: '' }
+  }
+
+  const fencedContent = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1]
+  const candidates = [trimmed, fencedContent].filter((value): value is string => Boolean(value))
+
+  for (const candidate of candidates) {
+    const direct = tryParseTranslationJson(candidate)
+    if (direct) {
+      return direct
+    }
+
+    const firstBraceIndex = candidate.indexOf('{')
+    const lastBraceIndex = candidate.lastIndexOf('}')
+    if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
+      const objectSlice = candidate.slice(firstBraceIndex, lastBraceIndex + 1)
+      const sliced = tryParseTranslationJson(objectSlice)
+      if (sliced) {
+        return sliced
+      }
+    }
+  }
+
+  return {
+    translatedTitle: '',
+    translatedContent: trimmed,
+  }
+}
+
 const buildMessages = (
   context: string,
   action: AiAction,
@@ -179,51 +308,20 @@ export function useAi(nodeId: string) {
       let aggregated = ''
 
       try {
-        const response = await fetch(`/api/ai/${provider}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        aggregated = await requestAiText(
+          {
+            provider,
             apiKey,
             model,
             messages,
             stream: aiStreamingEnabled,
-            ...(provider === 'openai' || provider === 'openai-compatible'
-              ? { baseUrl: keys.openaiBaseUrl ?? undefined }
-              : {}),
-          }),
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          throw new AiErrorClass('AI request failed', provider, String(response.status))
-        }
-
-        if (aiStreamingEnabled) {
-          const reader = response.body?.getReader()
-          if (!reader) {
-            throw new AiErrorClass('AI stream unavailable', provider)
-          }
-
-          const parser =
-            provider === 'gemini'
-              ? parseGeminiStream
-              : provider === 'anthropic'
-                ? parseAnthropicStream
-                : parseOpenAIStream
-
-          for await (const chunk of parser(reader)) {
-            if (chunk.done) break
-            aggregated += chunk.text
-            appendText(nodeId, chunk.text)
-          }
-        } else {
-          const json = (await response.json()) as { text?: string }
-          const text = typeof json.text === 'string' ? json.text : ''
-          if (text) {
-            aggregated = text
+            openaiBaseUrl: keys.openaiBaseUrl,
+          },
+          (text) => {
             appendText(nodeId, text)
-          }
-        }
+          },
+          controller.signal
+        )
 
         finishStreaming(nodeId)
 
@@ -236,6 +334,114 @@ export function useAi(nodeId: string) {
         const newNode = createNodeFromResult(sourceNode, action, finalText)
         useStore.getState().addNode(newNode)
         useStore.getState().addEdge(createEdge(nodeId, newNode.id))
+        return
+      } catch (caught) {
+        if (controller.signal.aborted) {
+          finishStreaming(nodeId)
+          return
+        }
+
+        lastError = caught
+        const shouldRetry = attempt < MAX_AI_REQUEST_ATTEMPTS && isRetryableError(caught)
+        if (shouldRetry) {
+          continue
+        }
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null
+        }
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : 'AI request failed'
+    const aiError: AiError =
+      lastError instanceof AiErrorClass ? lastError : new AiErrorClass(message, provider)
+    setError(nodeId, aiError)
+  }, [appendText, finishStreaming, nodeId, setError, startStreaming])
+
+  const translateNodeContent = useCallback(async (language: TranslationLanguage) => {
+    const keys = await loadApiKeys()
+    const provider = resolveProvider(keys.provider, keys)
+    const apiKey = toApiKey(provider, keys)
+    const model = toFastModel(provider, keys)
+    const aiStreamingEnabled = keys.aiStreamingEnabled ?? true
+
+    if (!apiKey) {
+      setError(nodeId, new AiErrorClass('No API key found. Please configure settings.', provider))
+      return
+    }
+
+    const sourceNode = getNodeById(useStore.getState().nodes, nodeId)
+    if (!sourceNode) {
+      setError(nodeId, new AiErrorClass('Source node not found.', provider))
+      return
+    }
+
+    const sourceTitle = sourceNode.data.summary_title?.trim() ?? ''
+    const sourceContent = sourceNode.data.text_content.trim()
+    if (!sourceTitle && !sourceContent) {
+      setError(nodeId, new AiErrorClass('Nothing to translate for this node.', provider))
+      return
+    }
+
+    const targetLanguageName = language === 'zh-CN' ? 'Simplified Chinese' : 'English'
+    const messages: AiMessage[] = [
+      {
+        role: 'system',
+        content:
+          'You are a precise translator. Return valid JSON only, with keys translatedTitle and translatedContent. Do not include markdown fences or extra keys.',
+      },
+      {
+        role: 'user',
+        content: [
+          `Translate the following node title and content into ${targetLanguageName}.`,
+          'Preserve scientific meaning and avoid adding or removing facts.',
+          '',
+          `Title: ${sourceTitle || '(empty)'}`,
+          `Content: ${sourceContent || '(empty)'}`,
+          '',
+          'Output JSON format:',
+          '{"translatedTitle":"...","translatedContent":"..."}',
+        ].join('\n'),
+      },
+    ]
+
+    let lastError: unknown = null
+
+    for (let attempt = 1; attempt <= MAX_AI_REQUEST_ATTEMPTS; attempt += 1) {
+      startStreaming(nodeId, 'translation')
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      let aggregated = ''
+
+      try {
+        aggregated = await requestAiText(
+          {
+            provider,
+            apiKey,
+            model,
+            messages,
+            stream: aiStreamingEnabled,
+            openaiBaseUrl: keys.openaiBaseUrl,
+          },
+          (text) => {
+            appendText(nodeId, text)
+          },
+          controller.signal
+        )
+
+        finishStreaming(nodeId)
+
+        const parsed = parseTranslationResult(aggregated)
+        const translatedContent = parsed.translatedContent || aggregated.trim()
+
+        useStore.getState().updateNodeData(nodeId, {
+          translated_language: language,
+          translated_title: parsed.translatedTitle,
+          translated_text_content: translatedContent,
+        })
         return
       } catch (caught) {
         if (controller.signal.aborted) {
@@ -275,6 +481,7 @@ export function useAi(nodeId: string) {
     error,
     currentAction,
     executeAction,
+    translateNodeContent,
     cancel,
-  }), [cancel, currentAction, error, executeAction, isLoading, streamingText])
+  }), [cancel, currentAction, error, executeAction, isLoading, streamingText, translateNodeContent])
 }

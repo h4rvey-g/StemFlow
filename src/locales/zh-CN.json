@@ -178,7 +178,16 @@
       "suggestValidation": "建议验证",
       "critique": "批评",
       "expand": "扩展",
-      "generateQuestions": "生成问题"
+      "generateQuestions": "生成问题",
+      "translation": "翻译"
+    },
+    "translation": {
+      "languageLabel": "目标语言",
+      "translate": "翻译",
+      "languages": {
+        "zhCN": "简体中文",
+        "en": "English"
+      }
     },
     "status": {
       "active": "活动：{{action}}"

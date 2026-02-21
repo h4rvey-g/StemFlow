@@ -9,6 +9,9 @@ interface InspectorPanelProps {
   onClose: () => void
   children?: ReactNode
   nodeText?: string
+  translatedTitle?: string
+  translatedTextContent?: string
+  translatedLanguage?: 'zh-CN' | 'en'
   nodePlaceholder?: string
   onNodeTextChange?: (nextText: string) => void
   citations?: Citation[]
@@ -19,6 +22,9 @@ export const InspectorPanel = ({
   onClose,
   children,
   nodeText,
+  translatedTitle,
+  translatedTextContent,
+  translatedLanguage,
   nodePlaceholder,
   onNodeTextChange,
   citations = [],
@@ -27,6 +33,9 @@ export const InspectorPanel = ({
   const [isCitationsExpanded, setIsCitationsExpanded] = useState(false)
   const [isEditingText, setIsEditingText] = useState(false)
   const [draftNodeText, setDraftNodeText] = useState(nodeText ?? '')
+  const normalizedTranslatedTitle = translatedTitle?.trim() ?? ''
+  const normalizedTranslatedTextContent = translatedTextContent?.trim() ?? ''
+  const hasTranslatedContent = normalizedTranslatedTitle.length > 0 || normalizedTranslatedTextContent.length > 0
 
   useEffect(() => {
     if (!isOpen) return
@@ -153,11 +162,28 @@ export const InspectorPanel = ({
                   onChange={(event) => setDraftNodeText(event.target.value)}
                 />
               ) : (
-                <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
-                  {nodeText && nodeText.trim().length > 0
-                    ? renderMarkdownEmphasis(nodeText, citations)
-                    : nodePlaceholder ?? ''}
-                </div>
+                <>
+                  <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                    {nodeText && nodeText.trim().length > 0
+                      ? renderMarkdownEmphasis(nodeText, citations)
+                      : nodePlaceholder ?? ''}
+                  </div>
+                  {hasTranslatedContent ? (
+                    <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                      {normalizedTranslatedTitle.length > 0 ? (
+                        <div className="mb-1 text-sm font-semibold text-slate-800">
+                          {normalizedTranslatedTitle}
+                        </div>
+                      ) : null}
+                      {normalizedTranslatedTextContent.length > 0
+                        ? renderMarkdownEmphasis(normalizedTranslatedTextContent, citations)
+                        : null}
+                      <div className="mt-1 text-xs text-slate-500">
+                        {translatedLanguage === 'en' ? 'English' : '简体中文'}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           ) : null}

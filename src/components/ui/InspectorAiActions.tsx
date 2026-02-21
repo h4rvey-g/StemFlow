@@ -10,11 +10,13 @@ import { useStore } from '@/stores/useStore'
 import { createRightwardPosition } from '@/lib/node-layout'
 import type { OMVNode, OMVEdge, NodeType } from '@/types/nodes'
 
+type TranslationLanguage = 'zh-CN' | 'en'
+
 interface InspectorAiActionsProps {
   nodeId: string
 }
 
-const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions']
+const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation']
 
 const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
   summarize: 'summarize',
@@ -22,6 +24,7 @@ const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
   critique: 'critique',
   expand: 'expand',
   questions: 'generateQuestions',
+  translation: 'translation',
 }
 
 const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
@@ -31,8 +34,10 @@ const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
 
 export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const { t } = useTranslation()
-  const { isLoading, streamingText, error, executeAction, cancel } = useAi(nodeId)
+  const { isLoading, streamingText, error, executeAction, translateNodeContent, cancel } = useAi(nodeId)
   const [activeAction, setActiveAction] = useState<AiAction | null>(null)
+  const [translationLanguage, setTranslationLanguage] = useState<TranslationLanguage>('zh-CN')
+  const [showTranslationLanguagePicker, setShowTranslationLanguagePicker] = useState(false)
   
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
@@ -42,8 +47,20 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const sourceType = sourceNode?.type ?? 'OBSERVATION'
 
   const runAction = async (action: AiAction) => {
+    if (action === 'translation') {
+      setActiveAction(action)
+      setShowTranslationLanguagePicker(true)
+      return
+    }
+
+    setShowTranslationLanguagePicker(false)
     setActiveAction(action)
     await executeAction(action, undefined, { createNodeOnComplete: false })
+  }
+
+  const runTranslation = async () => {
+    setActiveAction('translation')
+    await translateNodeContent(translationLanguage)
   }
 
   const applyResult = () => {
@@ -103,7 +120,39 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
         ))}
       </div>
 
-      {(streamingText || isLoading) && (
+      {showTranslationLanguagePicker ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+          <label className="mb-1 block text-xs font-medium text-slate-700" htmlFor={`inspector-translation-language-${nodeId}`}>
+            {t('popover.translation.languageLabel')}
+          </label>
+          <div className="flex items-center gap-2">
+            <select
+              id={`inspector-translation-language-${nodeId}`}
+              className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700"
+              value={translationLanguage}
+              onChange={(event) => {
+                setTranslationLanguage(event.target.value as TranslationLanguage)
+              }}
+              disabled={isLoading}
+            >
+              <option value="zh-CN">{t('popover.translation.languages.zhCN')}</option>
+              <option value="en">{t('popover.translation.languages.en')}</option>
+            </select>
+            <button
+              type="button"
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+              onClick={() => {
+                void runTranslation()
+              }}
+              disabled={isLoading}
+            >
+              {t('popover.translation.translate')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {activeAction !== 'translation' && (streamingText || isLoading) && (
         <StreamingText text={streamingText} isLoading={isLoading} />
       )}
 
@@ -121,7 +170,7 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
         >
           {t('common.cancel')}
         </button>
-      ) : streamingText.trim() ? (
+      ) : streamingText.trim() && activeAction !== 'translation' ? (
         <button
           type="button"
           className="w-full rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"

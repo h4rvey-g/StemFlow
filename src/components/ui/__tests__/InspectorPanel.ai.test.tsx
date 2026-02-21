@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { InspectorAiActions } from '@/components/ui/InspectorAiActions'
 
 const mockExecuteAction = vi.fn()
+const mockTranslateNodeContent = vi.fn()
 const mockCancel = vi.fn()
 const mockAddNode = vi.fn()
 const mockAddEdge = vi.fn()
@@ -32,6 +33,7 @@ vi.mock('@/hooks/useAi', () => ({
     error: mockAiState.error,
     currentAction: mockAiState.currentAction,
     executeAction: mockExecuteAction,
+    translateNodeContent: mockTranslateNodeContent,
     cancel: mockCancel,
   }),
 }))
@@ -60,6 +62,7 @@ describe('InspectorAiActions', () => {
     mockStoreState.nodes = [
       { id: 'node-1', type: 'OBSERVATION', position: { x: 0, y: 0 }, data: { text_content: 'test' } }
     ]
+    mockTranslateNodeContent.mockReset()
   })
 
   it('renders action buttons including suggest', () => {
@@ -68,6 +71,19 @@ describe('InspectorAiActions', () => {
     expect(screen.getByText('Summarize')).toBeInTheDocument()
     expect(screen.getByText('Suggest Mechanism')).toBeInTheDocument()
     expect(screen.getByText('Critique')).toBeInTheDocument()
+    expect(screen.getByText('Translation')).toBeInTheDocument()
+  })
+
+  it('translation opens language picker and triggers translation call', async () => {
+    render(<InspectorAiActions nodeId="node-1" />)
+
+    fireEvent.click(screen.getByText('Translation'))
+    expect(screen.getByLabelText('Target language')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Translate'))
+    await waitFor(() => {
+      expect(mockTranslateNodeContent).toHaveBeenCalledWith('zh-CN')
+    })
   })
 
   it('calls executeAction with createNodeOnComplete: false', async () => {

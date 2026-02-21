@@ -47,6 +47,9 @@ export interface NodeFileAttachment extends FileMetadata {
 export interface NodeData {
   text_content: string
   summary_title?: string
+  translated_title?: string
+  translated_text_content?: string
+  translated_language?: 'zh-CN' | 'en'
   grade?: number | null
   attachments?: NodeFileAttachment[]
   citations?: Citation[]
