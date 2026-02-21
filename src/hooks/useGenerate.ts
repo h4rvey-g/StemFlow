@@ -70,6 +70,7 @@ export function useGenerate() {
   const isGenerating = useStore((s) => s.isGenerating)
   const createPendingNodeFromGhost = useStore((s) => s.createPendingNodeFromGhost)
   const hydratePendingNode = useStore((s) => s.hydratePendingNode)
+  const updatePendingNodeStreamingText = useStore((s) => s.updatePendingNodeStreamingText)
   const markPendingNodeError = useStore((s) => s.markPendingNodeError)
   const retryPendingNodeGenerationInStore = useStore((s) => s.retryPendingNodeGeneration)
 
@@ -112,7 +113,12 @@ export function useGenerate() {
         apiKey,
         model,
         baseUrl,
-        gradedNodes
+        gradedNodes,
+        {
+          onStreamingText: (streamingText) => {
+            updatePendingNodeStreamingText(pendingNodeId, streamingText)
+          },
+        }
       )
 
       hydratePendingNode(pendingNodeId, {
@@ -125,7 +131,7 @@ export function useGenerate() {
     } catch (error) {
       markPendingNodeError(pendingNodeId, classifyGenerationError(error))
     }
-  }, [hydratePendingNode, markPendingNodeError])
+  }, [hydratePendingNode, markPendingNodeError, updatePendingNodeStreamingText])
 
   /**
    * Triggers Phase 1 (Planner Preview).

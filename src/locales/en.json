@@ -104,6 +104,9 @@
       "fastModel": "Fast Model",
       "fastModelLabel": "Fast Model",
       "fastModelHelper": "Used for quick tasks like AI grading of nodes.",
+      "streamingLabel": "AI Streaming",
+      "streamingDescription": "Stream AI responses token-by-token while generating content.",
+      "streamingEnabled": "Enable streaming responses",
       "fetchModels": "Fetch Models",
       "fetching": "Fetching...",
       "fetchModelMessages": {

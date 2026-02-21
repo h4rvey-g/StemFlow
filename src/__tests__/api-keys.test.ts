@@ -76,6 +76,7 @@ describe('api keys storage', () => {
       openaiFastModel: null,
       anthropicFastModel: null,
       geminiFastModel: null,
+      aiStreamingEnabled: true,
     })
   })
 
@@ -149,6 +150,36 @@ describe('api keys storage', () => {
       openaiFastModel: null,
       anthropicFastModel: null,
       geminiFastModel: null,
+      aiStreamingEnabled: true,
     })
+  })
+
+  it('persists ai streaming toggle when disabled', async () => {
+    const storage = createLocalStorage()
+    Object.defineProperty(window, 'localStorage', {
+      value: storage,
+      configurable: true
+    })
+
+    const saved = await saveApiKeys({
+      provider: 'openai',
+      openaiKey: 'openai-secret',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: false,
+    })
+
+    expect(saved.success).toBe(true)
+
+    const loaded = await loadApiKeys()
+    expect(loaded.aiStreamingEnabled).toBe(false)
   })
 })

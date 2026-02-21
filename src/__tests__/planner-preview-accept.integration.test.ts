@@ -32,6 +32,7 @@ const MOCK_API_KEYS = {
   openaiFastModel: null,
   anthropicFastModel: null,
   geminiFastModel: null,
+  aiStreamingEnabled: true,
 }
 
 const PARENT_NODE = {

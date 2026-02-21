@@ -322,6 +322,7 @@ export interface StoreState {
     pendingNodeId: string,
     payload: Pick<NodeData, 'text_content' | 'summary_title' | 'citations'>
   ) => void
+  updatePendingNodeStreamingText: (pendingNodeId: string, textContent: string) => void
   markPendingNodeError: (pendingNodeId: string, error: GenerationErrorPayload) => void
   retryPendingNodeGeneration: (pendingNodeId: string) => boolean
   acceptGhostNode: (ghostId: string) => void
@@ -632,6 +633,36 @@ export const useStore = create<StoreState>((set) => ({
           },
         }
       })
+
+      schedulePersist(nodes, state.edges)
+      return { nodes }
+    })
+  },
+  updatePendingNodeStreamingText: (pendingNodeId, textContent) => {
+    set((state) => {
+      if (typeof textContent !== 'string') {
+        return state
+      }
+
+      let updated = false
+      const nodes: OMVNode[] = state.nodes.map((node): OMVNode => {
+        if (node.id !== pendingNodeId) return node
+        if (node.data.generationStatus !== 'pending') return node
+        if (node.data.text_content === textContent) return node
+
+        updated = true
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            text_content: textContent,
+          },
+        }
+      })
+
+      if (!updated) {
+        return state
+      }
 
       schedulePersist(nodes, state.edges)
       return { nodes }

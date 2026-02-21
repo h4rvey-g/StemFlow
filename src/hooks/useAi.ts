@@ -152,6 +152,7 @@ export function useAi(nodeId: string) {
     const provider = resolveProvider(keys.provider, keys)
     const apiKey = toApiKey(provider, keys)
     const model = toModel(provider, keys)
+    const aiStreamingEnabled = keys.aiStreamingEnabled ?? true
 
     if (!apiKey) {
       setError(nodeId, new AiErrorClass('No API key found. Please configure settings.', provider))
@@ -185,7 +186,7 @@ export function useAi(nodeId: string) {
             apiKey,
             model,
             messages,
-            stream: true,
+            stream: aiStreamingEnabled,
             ...(provider === 'openai' || provider === 'openai-compatible'
               ? { baseUrl: keys.openaiBaseUrl ?? undefined }
               : {}),
@@ -197,22 +198,31 @@ export function useAi(nodeId: string) {
           throw new AiErrorClass('AI request failed', provider, String(response.status))
         }
 
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new AiErrorClass('AI stream unavailable', provider)
-        }
+        if (aiStreamingEnabled) {
+          const reader = response.body?.getReader()
+          if (!reader) {
+            throw new AiErrorClass('AI stream unavailable', provider)
+          }
 
-        const parser =
-          provider === 'gemini'
-            ? parseGeminiStream
-            : provider === 'anthropic'
-              ? parseAnthropicStream
-              : parseOpenAIStream
+          const parser =
+            provider === 'gemini'
+              ? parseGeminiStream
+              : provider === 'anthropic'
+                ? parseAnthropicStream
+                : parseOpenAIStream
 
-        for await (const chunk of parser(reader)) {
-          if (chunk.done) break
-          aggregated += chunk.text
-          appendText(nodeId, chunk.text)
+          for await (const chunk of parser(reader)) {
+            if (chunk.done) break
+            aggregated += chunk.text
+            appendText(nodeId, chunk.text)
+          }
+        } else {
+          const json = (await response.json()) as { text?: string }
+          const text = typeof json.text === 'string' ? json.text : ''
+          if (text) {
+            aggregated = text
+            appendText(nodeId, text)
+          }
         }
 
         finishStreaming(nodeId)

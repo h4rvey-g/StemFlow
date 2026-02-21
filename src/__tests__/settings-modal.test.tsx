@@ -146,11 +146,41 @@ describe('SettingsModal', () => {
     expect(saveApiKeys).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'openai',
       openaiKey: 'sk-new-key',
+      aiStreamingEnabled: true,
     }))
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled()
     })
+  })
+
+  it('enables AI streaming by default and allows toggling off before save', async () => {
+    ;(saveApiKeys as Mock).mockResolvedValue({ success: true })
+
+    render(<SettingsModal isOpen={true} onClose={onClose} />)
+    await waitFor(() => expect(loadApiKeys).toHaveBeenCalled())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model Settings' }))
+
+    const streamingCheckbox = screen.getByRole('checkbox', {
+      name: /Enable streaming responses|settings\.model\.streamingEnabled/i,
+    })
+    expect(streamingCheckbox).toBeChecked()
+
+    await userEvent.click(streamingCheckbox)
+
+    const keyInput = screen.getByPlaceholderText(/sk-/)
+    await userEvent.clear(keyInput)
+    await userEvent.type(keyInput, 'sk-stream-off')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save Model Settings' }))
+
+    expect(saveApiKeys).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiStreamingEnabled: false,
+        openaiKey: 'sk-stream-off',
+      })
+    )
   })
 
   it('shows persisted selected model even when not in fallback list', async () => {

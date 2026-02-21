@@ -58,6 +58,7 @@ describe('useAi', () => {
       openaiFastModel: null,
       anthropicFastModel: null,
       geminiFastModel: null,
+      aiStreamingEnabled: true,
     })
   })
 
@@ -248,5 +249,40 @@ describe('useAi', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3)
     expect(useAiStore.getState().isLoading[NODE_ID]).toBe(false)
     expect(useAiStore.getState().error[NODE_ID]?.message).toBe('Temporary network failure 3')
+  })
+
+  it('uses non-streaming JSON response when streaming disabled', async () => {
+    vi.spyOn(apiKeys, 'loadApiKeys').mockResolvedValue({
+      provider: 'openai',
+      openaiKey: 'sk-test',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: false,
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ text: 'Full response text' }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+
+    const { result } = renderHook(() => useAi(NODE_ID))
+
+    await act(async () => {
+      await result.current.executeAction('summarize')
+    })
+
+    expect(useAiStore.getState().streamingText[NODE_ID]).toBe('Full response text')
+    const payload = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as { stream?: boolean }
+    expect(payload.stream).toBe(false)
   })
 })

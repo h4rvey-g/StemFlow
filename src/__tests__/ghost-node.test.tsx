@@ -62,10 +62,7 @@ describe('GhostNode', () => {
     expect(screen.queryByText('This text should not be rendered')).not.toBeInTheDocument()
     expect(screen.queryByText('Ref 1')).not.toBeInTheDocument()
     
-    const container = screen
-      .getByText(fallbackPattern('Suggested Observation', 'nodes.ghost.suggestedObservation'))
-      .closest('div')
-      ?.parentElement
+    const container = screen.getByTestId('ghost-node-card')
     expect(container).toHaveClass('border-dashed')
   })
 
@@ -85,10 +82,7 @@ describe('GhostNode', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Mechanism Title')).toBeInTheDocument()
     
-    const container = screen
-      .getByText(fallbackPattern('Suggested Mechanism', 'nodes.ghost.suggestedMechanism'))
-      .closest('div')
-      ?.parentElement
+    const container = screen.getByTestId('ghost-node-card')
     expect(container).toHaveClass('border-dashed')
   })
 

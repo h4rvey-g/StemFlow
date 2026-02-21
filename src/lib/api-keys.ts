@@ -9,6 +9,7 @@ const GEMINI_MODEL_STORAGE = 'stemflow:model:gemini'
 const OPENAI_FAST_MODEL_STORAGE = 'stemflow:fastmodel:openai'
 const ANTHROPIC_FAST_MODEL_STORAGE = 'stemflow:fastmodel:anthropic'
 const GEMINI_FAST_MODEL_STORAGE = 'stemflow:fastmodel:gemini'
+const AI_STREAMING_ENABLED_STORAGE = 'stemflow:ai:streaming-enabled'
 const PROVIDER_STORAGE = 'stemflow:provider'
 
 const textEncoder = new TextEncoder()
@@ -29,6 +30,14 @@ export interface ApiKeyState {
   openaiFastModel: string | null
   anthropicFastModel: string | null
   geminiFastModel: string | null
+  aiStreamingEnabled?: boolean
+}
+
+export const DEFAULT_AI_STREAMING_ENABLED = true
+
+const normalizeAiStreamingEnabled = (value: boolean | null | undefined): boolean => {
+  if (typeof value === 'boolean') return value
+  return DEFAULT_AI_STREAMING_ENABLED
 }
 
 export const STORAGE_KEYS = {
@@ -43,6 +52,7 @@ export const STORAGE_KEYS = {
   openaiFastModel: OPENAI_FAST_MODEL_STORAGE,
   anthropicFastModel: ANTHROPIC_FAST_MODEL_STORAGE,
   geminiFastModel: GEMINI_FAST_MODEL_STORAGE,
+  aiStreamingEnabled: AI_STREAMING_ENABLED_STORAGE,
   provider: PROVIDER_STORAGE
 } as const
 
@@ -188,6 +198,7 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
 
   try {
     const key = await deriveAesKey()
+    const aiStreamingEnabled = normalizeAiStreamingEnabled(state.aiStreamingEnabled)
 
     if (state.openaiKey) {
       storage.setItem(
@@ -271,6 +282,8 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
       storage.removeItem(GEMINI_FAST_MODEL_STORAGE)
     }
 
+    storage.setItem(AI_STREAMING_ENABLED_STORAGE, aiStreamingEnabled ? 'true' : 'false')
+
     return { success: true }
   } catch (error) {
     console.error('saveApiKeys error:', error)
@@ -304,7 +317,21 @@ export const saveApiKeys = async (state: ApiKeyState): Promise<{ success: boolea
 export const loadApiKeys = async (): Promise<ApiKeyState> => {
   const storage = getStorage()
   if (!storage) {
-    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null, openaiFastModel: null, anthropicFastModel: null, geminiFastModel: null }
+    return {
+      provider: null,
+      openaiKey: null,
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: DEFAULT_AI_STREAMING_ENABLED,
+    }
   }
 
   try {
@@ -321,6 +348,7 @@ export const loadApiKeys = async (): Promise<ApiKeyState> => {
     const openaiFastModel = storage.getItem(OPENAI_FAST_MODEL_STORAGE)
     const anthropicFastModel = storage.getItem(ANTHROPIC_FAST_MODEL_STORAGE)
     const geminiFastModel = storage.getItem(GEMINI_FAST_MODEL_STORAGE)
+    const aiStreamingEnabledRaw = storage.getItem(AI_STREAMING_ENABLED_STORAGE)
 
     const [openaiKey, anthropicKey, geminiKey] = await Promise.all([
       openaiCipher ? decryptString(openaiCipher, key) : Promise.resolve(null),
@@ -337,8 +365,43 @@ export const loadApiKeys = async (): Promise<ApiKeyState> => {
         ? providerValue
         : null
 
-    return { provider, openaiKey, anthropicKey, geminiKey, openaiBaseUrl, anthropicBaseUrl, openaiModel, anthropicModel, geminiModel, openaiFastModel, anthropicFastModel, geminiFastModel }
+    const aiStreamingEnabled =
+      aiStreamingEnabledRaw === 'true'
+        ? true
+        : aiStreamingEnabledRaw === 'false'
+          ? false
+          : DEFAULT_AI_STREAMING_ENABLED
+
+    return {
+      provider,
+      openaiKey,
+      anthropicKey,
+      geminiKey,
+      openaiBaseUrl,
+      anthropicBaseUrl,
+      openaiModel,
+      anthropicModel,
+      geminiModel,
+      openaiFastModel,
+      anthropicFastModel,
+      geminiFastModel,
+      aiStreamingEnabled,
+    }
   } catch {
-    return { provider: null, openaiKey: null, anthropicKey: null, geminiKey: null, openaiBaseUrl: null, anthropicBaseUrl: null, openaiModel: null, anthropicModel: null, geminiModel: null, openaiFastModel: null, anthropicFastModel: null, geminiFastModel: null }
+    return {
+      provider: null,
+      openaiKey: null,
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: null,
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: DEFAULT_AI_STREAMING_ENABLED,
+    }
   }
 }

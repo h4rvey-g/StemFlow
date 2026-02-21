@@ -67,6 +67,7 @@ vi.mock('@/stores/useStore', () => {
     setGhostSuggestions: vi.fn(),
     createPendingNodeFromGhost: vi.fn(),
     hydratePendingNode: vi.fn(),
+    updatePendingNodeStreamingText: vi.fn(),
     markPendingNodeError: vi.fn(),
     retryPendingNodeGeneration: vi.fn(() => false),
     acceptGhostNode: vi.fn(),

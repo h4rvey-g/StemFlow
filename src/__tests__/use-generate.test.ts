@@ -24,6 +24,7 @@ const MOCK_API_KEYS = {
   openaiFastModel: null,
   anthropicFastModel: null,
   geminiFastModel: null,
+  aiStreamingEnabled: true,
 }
 
 const MOCK_ANCESTRY = [
@@ -107,6 +108,7 @@ describe('useGenerate', () => {
   const mockSetAiError = vi.fn()
   const mockCreatePendingNodeFromGhost = vi.fn()
   const mockHydratePendingNode = vi.fn()
+  const mockUpdatePendingNodeStreamingText = vi.fn()
   const mockMarkPendingNodeError = vi.fn()
   const mockRetryPendingNodeGeneration = vi.fn()
 
@@ -132,6 +134,7 @@ describe('useGenerate', () => {
       isGenerating: false,
       createPendingNodeFromGhost: mockCreatePendingNodeFromGhost,
       hydratePendingNode: mockHydratePendingNode,
+      updatePendingNodeStreamingText: mockUpdatePendingNodeStreamingText,
       markPendingNodeError: mockMarkPendingNodeError,
       retryPendingNodeGeneration: mockRetryPendingNodeGeneration,
     })
@@ -287,7 +290,10 @@ describe('useGenerate', () => {
         'sk-test',
         null,
         null,
-        []
+        [],
+        expect.objectContaining({
+          onStreamingText: expect.any(Function),
+        })
       )
       expect(mockHydratePendingNode).toHaveBeenCalledWith('pending-node-1', {
         text_content: 'Full mechanism content',
@@ -295,6 +301,36 @@ describe('useGenerate', () => {
         citations: [],
       })
       expect(mockMarkPendingNodeError).not.toHaveBeenCalled()
+    })
+
+    it('streams partial text into pending node before final hydration', async () => {
+      mockCreatePendingNodeFromGhost.mockReturnValue('pending-node-1')
+      vi.spyOn(aiService, 'generateStepFromDirection').mockImplementation(async (...args: unknown[]) => {
+        const options = args[8] as { onStreamingText?: (textContent: string) => void } | undefined
+        options?.onStreamingText?.('Partial text')
+        options?.onStreamingText?.('Partial text expanded')
+
+        return {
+          type: 'MECHANISM',
+          text_content: 'Final mechanism content',
+          summary_title: 'Mechanism summary',
+          citations: [],
+        }
+      })
+
+      const { result } = renderHook(() => useGenerate())
+
+      await act(async () => {
+        await result.current.acceptGhost('ghost-1')
+      })
+
+      expect(mockUpdatePendingNodeStreamingText).toHaveBeenCalledWith('pending-node-1', 'Partial text')
+      expect(mockUpdatePendingNodeStreamingText).toHaveBeenCalledWith('pending-node-1', 'Partial text expanded')
+      expect(mockHydratePendingNode).toHaveBeenCalledWith('pending-node-1', {
+        text_content: 'Final mechanism content',
+        summary_title: 'Mechanism summary',
+        citations: [],
+      })
     })
 
     it('multi-accept concurrent success: two quick accepts create independent pending hydrations', async () => {

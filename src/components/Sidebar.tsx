@@ -141,7 +141,7 @@ export const Sidebar = memo(() => {
   }
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
+    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
       <div className="flex-1 overflow-y-auto">
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">

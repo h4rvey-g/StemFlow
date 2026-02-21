@@ -104,6 +104,9 @@
       "fastModel": "快速模型",
       "fastModelLabel": "快速模型",
       "fastModelHelper": "用于快速任务，如 AI 节点评分。",
+      "streamingLabel": "AI 流式输出",
+      "streamingDescription": "在生成内容时按 token 实时流式显示 AI 响应。",
+      "streamingEnabled": "启用流式响应",
       "fetchModels": "获取模型",
       "fetching": "获取中...",
       "fetchModelMessages": {

@@ -61,7 +61,7 @@ export const ManualGroupNode = memo(({ data }: NodeProps<ManualGroupNodeData>) =
       className="relative h-full w-full rounded-2xl border-[3px] border-dashed border-cyan-500/95 bg-cyan-200/20"
       onContextMenu={handleContextMenu}
     >
-      <div className="pointer-events-auto absolute left-2 top-2 rounded-lg border border-cyan-300 bg-white/95 px-2 py-1 shadow-sm backdrop-blur">
+      <div className="pointer-events-auto absolute left-2 top-2 rounded-lg border border-cyan-300 bg-white/95 px-2 py-1 shadow-sm">
         {isEditing ? (
           <input
             type="text"

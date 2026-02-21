@@ -108,7 +108,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     >
       <div
         data-testid="node-popover"
-        className="absolute w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur"
+        className="absolute w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl"
         style={{
           left: Math.min(rect.left, window.innerWidth - 340),
           top: Math.min(rect.top + rect.height + 8, window.innerHeight - 360),

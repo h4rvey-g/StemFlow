@@ -48,6 +48,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const [openaiFastModel, setOpenaiFastModel] = useState<string>(OPENAI_MODELS[0]);
   const [anthropicFastModel, setAnthropicFastModel] = useState<string>(ANTHROPIC_MODELS[0]);
   const [geminiFastModel, setGeminiFastModel] = useState<string>(GEMINI_MODELS[0]);
+  const [aiStreamingEnabled, setAiStreamingEnabled] = useState(true);
   const [fetchedModelOptions, setFetchedModelOptions] = useState<Partial<Record<ApiProvider, string[]>>>({});
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [modelFetchMessage, setModelFetchMessage] = useState('');
@@ -97,6 +98,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         if (keys.openaiFastModel) setOpenaiFastModel(keys.openaiFastModel);
         if (keys.anthropicFastModel) setAnthropicFastModel(keys.anthropicFastModel);
         if (keys.geminiFastModel) setGeminiFastModel(keys.geminiFastModel);
+        setAiStreamingEnabled(keys.aiStreamingEnabled ?? true);
         setIsLoading(false);
       });
     }
@@ -132,6 +134,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       openaiFastModel,
       anthropicFastModel,
       geminiFastModel,
+      aiStreamingEnabled,
     };
 
     const result = await saveApiKeys(newState);
@@ -344,10 +347,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6"
       data-testid="settings-modal"
     >
-      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('settings.title')}</h2>
           <button
@@ -525,6 +528,19 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       <span className="text-xs text-gray-500 dark:text-gray-400">{modelFetchMessage}</span>
                     ) : null}
                   </div>
+                </div>
+
+                <div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                    <input
+                      id="settings-ai-streaming-enabled"
+                      type="checkbox"
+                      checked={aiStreamingEnabled}
+                      onChange={(e) => setAiStreamingEnabled(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-gray-500 dark:bg-gray-700"
+                    />
+                    <span>{t('settings.model.streamingEnabled')}</span>
+                  </label>
                 </div>
 
 

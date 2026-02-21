@@ -523,15 +523,10 @@ function Canvas() {
       ? nodeTypeLabelMap[previewTargetNode.type]
       : t('canvas.nearbyNode')
 
-  const ghostSuggestionFrame = useMemo(() => {
+  const ghostSuggestionCluster = useMemo(() => {
     if (ghostNodes.length === 0) return null
 
-    let minX = Number.POSITIVE_INFINITY
-    let minY = Number.POSITIVE_INFINITY
-    let maxX = Number.NEGATIVE_INFINITY
-    let maxY = Number.NEGATIVE_INFINITY
-
-    for (const ghostNode of ghostNodes) {
+    const ghostRects = ghostNodes.map((ghostNode) => {
       const width =
         typeof ghostNode.width === 'number' && ghostNode.width > 0
           ? ghostNode.width
@@ -541,10 +536,25 @@ function Canvas() {
           ? ghostNode.height
           : FALLBACK_GHOST_NODE_HEIGHT_PX
 
-      minX = Math.min(minX, ghostNode.position.x)
-      minY = Math.min(minY, ghostNode.position.y)
-      maxX = Math.max(maxX, ghostNode.position.x + width)
-      maxY = Math.max(maxY, ghostNode.position.y + height)
+      return {
+        id: ghostNode.id,
+        x: ghostNode.position.x,
+        y: ghostNode.position.y,
+        width,
+        height,
+      }
+    })
+
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    for (const ghostRect of ghostRects) {
+      minX = Math.min(minX, ghostRect.x)
+      minY = Math.min(minY, ghostRect.y)
+      maxX = Math.max(maxX, ghostRect.x + ghostRect.width)
+      maxY = Math.max(maxY, ghostRect.y + ghostRect.height)
     }
 
     const frameX = minX - GHOST_FRAME_PADDING_PX
@@ -565,11 +575,7 @@ function Canvas() {
     const headerY = preferredHeaderY >= 8 ? preferredHeaderY : topLeft.y + screenHeight + GHOST_ACTION_BAR_GAP_PX
 
     return {
-      frameX: topLeft.x,
-      frameY: topLeft.y,
-      frameWidth: screenWidth,
-      frameHeight: screenHeight,
-      headerX: topLeft.x,
+      headerX: topLeft.x + screenWidth / 2,
       headerY,
       count: ghostNodes.length,
     }
@@ -606,7 +612,43 @@ function Canvas() {
       return node
     })
 
-    return [...groupedNodes, ...decorated, ...ghostNodes]
+    const ghostDistances = ghostNodes.map((ghostNode) => {
+      const parentNode = nodes.find((node) => node.id === ghostNode.data.parentId)
+      if (!parentNode) {
+        return {
+          id: ghostNode.id,
+          distance: 0,
+        }
+      }
+
+      return {
+        id: ghostNode.id,
+        distance: Math.hypot(
+          ghostNode.position.x - parentNode.position.x,
+          ghostNode.position.y - parentNode.position.y
+        ),
+      }
+    })
+
+    const maxGhostDistance = ghostDistances.reduce((maxDistance, entry) => Math.max(maxDistance, entry.distance), 0)
+    const ghostDistanceMap = new Map(ghostDistances.map((entry) => [entry.id, entry.distance]))
+
+    const decoratedGhostNodes = ghostNodes.map((ghostNode, index) => {
+      const distance = ghostDistanceMap.get(ghostNode.id) ?? 0
+      const fallbackRatio = ghostNodes.length > 1 ? index / (ghostNodes.length - 1) : 0
+      const ratio = maxGhostDistance > 0 ? distance / maxGhostDistance : fallbackRatio
+      const opacity = Number((0.92 - ratio * 0.18).toFixed(2))
+
+      return {
+        ...ghostNode,
+        style: {
+          ...(ghostNode.style ?? {}),
+          opacity,
+        },
+      }
+    })
+
+    return [...groupedNodes, ...decorated, ...decoratedGhostNodes]
   }, [nodes, manualGroups, ghostNodes, connectingFromType, dragDropPreview])
 
   const displayEdges = useMemo(() => {
@@ -847,7 +889,7 @@ function Canvas() {
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 dark:bg-slate-950">
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white/80 px-6 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
+      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white/80 px-6 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-sm shadow-sm">
             SF
@@ -945,7 +987,7 @@ function Canvas() {
                 aria-hidden
               />
               <div
-                className="pointer-events-none absolute z-30 rounded-lg border border-cyan-200 bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-md backdrop-blur"
+                className="pointer-events-none absolute z-30 rounded-lg border border-cyan-200 bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-cyan-700 shadow-md"
                 style={{
                   left: dragDropPreview.cursor.x + 16,
                   top: Math.max(12, dragDropPreview.cursor.y - 12),
@@ -987,7 +1029,7 @@ function Canvas() {
               color="#cbd5e1"
             />
             <Controls 
-              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80"
+              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
             />
             <MiniMap 
               nodeColor={(node) => {
@@ -999,41 +1041,31 @@ function Canvas() {
                   default: return '#64748b'
                 }
               }}
-              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80"
+              className="rounded-lg border border-slate-200 bg-white/80 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
               maskColor="rgb(241, 245, 249, 0.6)"
             />
-            {ghostSuggestionFrame ? (
+            {ghostSuggestionCluster ? (
               <>
                 <div
-                  className="pointer-events-none absolute rounded-2xl border-2 border-dashed border-cyan-300 bg-cyan-100/30"
+                  className="absolute flex items-center gap-1.5"
                   style={{
-                    left: ghostSuggestionFrame.frameX,
-                    top: ghostSuggestionFrame.frameY,
-                    width: ghostSuggestionFrame.frameWidth,
-                    height: ghostSuggestionFrame.frameHeight,
-                    zIndex: 40,
-                  }}
-                  aria-hidden
-                />
-                <div
-                  className="absolute flex items-center gap-2 rounded-xl border border-cyan-200 bg-white/95 p-2 shadow-md backdrop-blur"
-                  style={{
-                    left: ghostSuggestionFrame.headerX,
-                    top: ghostSuggestionFrame.headerY,
+                    left: ghostSuggestionCluster.headerX,
+                    top: ghostSuggestionCluster.headerY,
+                    transform: 'translateX(-50%)',
                     zIndex: 45,
                   }}
                   data-testid="ghost-suggestion-actions"
                 >
                   <button
                     onClick={acceptAllGhostNodes}
-                    className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-300 hover:bg-emerald-100"
+                    className="inline-flex items-center rounded-full border border-emerald-300/80 bg-white/88 px-3 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50"
                     data-testid="ghost-group-accept-all"
                   >
-                    {t('canvas.acceptAll', { count: ghostSuggestionFrame.count })}
+                    {t('canvas.acceptAll', { count: ghostSuggestionCluster.count })}
                   </button>
                   <button
                     onClick={dismissAllGhostNodes}
-                    className="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-100"
+                    className="inline-flex items-center rounded-full border border-slate-300/80 bg-white/88 px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
                     data-testid="ghost-group-dismiss-all"
                   >
                     {t('canvas.dismissAll')}

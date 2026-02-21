@@ -1,5 +1,6 @@
 import { loadApiKeys } from '@/lib/api-keys'
 import { getModelOutputTokenLimit } from '@/lib/ai/max-tokens'
+import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
 import { formatAncestryForPrompt } from '@/lib/graph'
 import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
@@ -38,6 +39,14 @@ interface PlannedDirection {
   summary_title: string
   direction_focus: string
   search_query: string
+}
+
+interface RequestAiTextOptions {
+  onStreamingRawText?: (rawText: string) => void
+}
+
+interface GenerateStepFromDirectionOptions {
+  onStreamingText?: (textContent: string) => void
 }
 
 const clampGrade = (value: number): number => Math.min(5, Math.max(1, Math.round(value)))
@@ -79,6 +88,7 @@ const RATING_KEYS = ['rating', 'score', 'stars', 'star', 'grade'] as const
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
 const MAX_AI_REQUEST_ATTEMPTS = 3
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504])
+const STREAM_CHUNK_TIMEOUT_MS = 15000
 
 const isRetryableStatus = (status: number): boolean =>
   status >= 500 || RETRYABLE_STATUS_CODES.has(status)
@@ -628,6 +638,68 @@ const extractJsonPayload = (content: string): string => {
   return content.trim()
 }
 
+const extractPartialJsonStringField = (content: string, fieldName: string): string | null => {
+  const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`)
+  const match = fieldPattern.exec(content)
+  if (!match) {
+    return null
+  }
+
+  let cursor = match.index + match[0].length
+  let parsed = ''
+  let isEscaped = false
+
+  while (cursor < content.length) {
+    const char = content[cursor]
+
+    if (isEscaped) {
+      if (char === 'n') parsed += '\n'
+      else if (char === 'r') parsed += '\r'
+      else if (char === 't') parsed += '\t'
+      else if (char === 'b') parsed += '\b'
+      else if (char === 'f') parsed += '\f'
+      else if (char === 'u') {
+        const unicode = content.slice(cursor + 1, cursor + 5)
+        if (/^[0-9a-fA-F]{4}$/.test(unicode)) {
+          parsed += String.fromCharCode(Number.parseInt(unicode, 16))
+          cursor += 4
+        } else {
+          parsed += 'u'
+        }
+      } else {
+        parsed += char
+      }
+
+      isEscaped = false
+      cursor += 1
+      continue
+    }
+
+    if (char === '\\') {
+      isEscaped = true
+      cursor += 1
+      continue
+    }
+
+    if (char === '"') {
+      return parsed
+    }
+
+    parsed += char
+    cursor += 1
+  }
+
+  return parsed || null
+}
+
+const extractStreamingGeneratedTextContent = (content: string): string | null => {
+  return (
+    extractPartialJsonStringField(content, 'text_content') ??
+    extractPartialJsonStringField(content, 'text_') ??
+    extractPartialJsonStringField(content, 'text')
+  )
+}
+
 /**
  * Attempt to salvage complete JSON objects from a truncated JSON array.
  * Walks backwards from the end looking for the last `}`, then tries
@@ -968,29 +1040,209 @@ const requestAiText = async (
   baseUrl: string | null | undefined,
   messages: AiMessage[],
   temperature: number,
-  maxTokens?: number
+  maxTokens?: number,
+  options?: RequestAiTextOptions
 ): Promise<{ text: string; finishReason: string; responseModel: string }> => {
-  const response = await requestAiResponseWithRetry(provider, {
+  const streamParser =
+    provider === 'anthropic'
+      ? parseAnthropicStream
+      : provider === 'openai' || provider === 'openai-compatible'
+        ? parseOpenAIStream
+        : parseGeminiStream
+
+  const parseJsonTextResponse = async (response: Response): Promise<{ text: string; finishReason: string; responseModel: string }> => {
+    const json = (await response.json()) as {
+      text?: string
+      finishReason?: string
+      model?: string
+    }
+
+    return {
+      text: typeof json.text === 'string' ? json.text : '',
+      finishReason: typeof json.finishReason === 'string' ? json.finishReason : 'unknown',
+      responseModel: typeof json.model === 'string' ? json.model : modelName,
+    }
+  }
+
+  const readSseTextResponse = async (
+    response: Response,
+    onChunk?: (text: string, chunkText: string) => void
+  ): Promise<string> => {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      return ''
+    }
+
+    let text = ''
+    const iterator = streamParser(reader)[Symbol.asyncIterator]()
+
+    while (true) {
+      const chunkResult = await nextStreamChunkWithTimeout(
+        iterator,
+        STREAM_CHUNK_TIMEOUT_MS,
+        () => {
+          void reader.cancel('stream-timeout')
+        }
+      )
+
+      if (chunkResult.done) break
+      const chunk = chunkResult.value
+      if (chunk.done) break
+
+      text += chunk.text
+      onChunk?.(text, chunk.text)
+    }
+
+    return text
+  }
+
+  const basePayload = {
     apiKey,
     model: modelName,
     baseUrl: baseUrl || undefined,
     messages,
-    stream: false,
     temperature,
     ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
+  }
+
+  const requestNonStreamingFallback = async (): Promise<{ text: string; finishReason: string; responseModel: string }> => {
+    const fallbackResponse = await requestAiResponseWithRetry(provider, {
+      ...basePayload,
+      stream: false,
+    })
+
+    const fallbackContentType = fallbackResponse.headers.get('content-type') || ''
+    const fallbackIsSse = fallbackContentType.includes('text/event-stream')
+
+    if (fallbackIsSse) {
+      if (hasStreamingObserver) {
+        console.warn('[AI Service] Non-stream fallback returned SSE, parsing streamed fallback content', {
+          provider,
+          modelName,
+          contentType: fallbackContentType,
+        })
+      }
+
+      const text = await readSseTextResponse(fallbackResponse)
+      if (!text.trim()) {
+        throw new Error('AI fallback stream returned no content')
+      }
+
+      return {
+        text,
+        finishReason: 'unknown',
+        responseModel: modelName,
+      }
+    }
+
+    return parseJsonTextResponse(fallbackResponse)
+  }
+
+  const nextStreamChunkWithTimeout = async <T>(
+    iterator: AsyncIterator<T>,
+    timeoutMs: number,
+    onTimeout: () => void
+  ): Promise<IteratorResult<T>> => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    try {
+      return await Promise.race([
+        iterator.next(),
+        new Promise<IteratorResult<T>>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            onTimeout()
+            reject(new Error('AI stream timed out'))
+          }, timeoutMs)
+        }),
+      ])
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }
+
+  const aiStreamingEnabled = (await loadApiKeys()).aiStreamingEnabled ?? true
+  const hasStreamingObserver = typeof options?.onStreamingRawText === 'function'
+
+  if (aiStreamingEnabled && hasStreamingObserver) {
+    console.info('[AI Service] Streaming enabled for generation request', {
+      provider,
+      modelName,
+    })
+  } else if (!aiStreamingEnabled && hasStreamingObserver) {
+    console.info('[AI Service] Streaming disabled, using non-streaming generation request', {
+      provider,
+      modelName,
+    })
+  }
+
+  const response = await requestAiResponseWithRetry(provider, {
+    ...basePayload,
+    stream: aiStreamingEnabled,
   })
 
-  const json = (await response.json()) as {
-    text?: string
-    finishReason?: string
-    model?: string
+  const contentType = response.headers.get('content-type') || ''
+  const isSseStream = contentType.includes('text/event-stream')
+
+  if (aiStreamingEnabled && isSseStream && response.body) {
+    let receivedStreamingChunk = false
+    let text = ''
+
+    try {
+      text = await readSseTextResponse(response, (streamedText, chunkText) => {
+        if (hasStreamingObserver && chunkText.length > 0 && !receivedStreamingChunk) {
+          receivedStreamingChunk = true
+          console.info('[AI Service] Streaming content is flowing', {
+            provider,
+            modelName,
+          })
+        }
+        options?.onStreamingRawText?.(streamedText)
+      })
+    } catch (error) {
+      console.warn('[AI Service] Stream parsing failed, retrying as non-stream response', {
+        provider,
+        modelName,
+        error,
+      })
+      return requestNonStreamingFallback()
+    }
+
+    if (!text.trim()) {
+      if (hasStreamingObserver) {
+        console.warn('[AI Service] Streaming produced no content, switching to non-stream fallback', {
+          provider,
+          modelName,
+        })
+      }
+      return requestNonStreamingFallback()
+    }
+
+    if (hasStreamingObserver) {
+      console.info('[AI Service] Streaming generation completed with content', {
+        provider,
+        modelName,
+        textLength: text.length,
+      })
+    }
+
+    return {
+      text,
+      finishReason: 'unknown',
+      responseModel: modelName,
+    }
   }
 
-  return {
-    text: typeof json.text === 'string' ? json.text : '',
-    finishReason: typeof json.finishReason === 'string' ? json.finishReason : 'unknown',
-    responseModel: typeof json.model === 'string' ? json.model : modelName,
+  if (aiStreamingEnabled && !isSseStream && hasStreamingObserver) {
+    console.warn('[AI Service] Stream requested but SSE response unavailable, parsing JSON response', {
+      provider,
+      modelName,
+      contentType,
+    })
   }
+
+  return parseJsonTextResponse(response)
 }
 
 const buildPlannerPrompt = (
@@ -1287,7 +1539,8 @@ export async function generateStepFromDirection(
   apiKey: string,
   model?: string | null,
   baseUrl?: string | null,
-  gradedNodes: NodeSuggestionContext[] = []
+  gradedNodes: NodeSuggestionContext[] = [],
+  options?: GenerateStepFromDirectionOptions
 ): Promise<GeneratedStep> {
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
@@ -1304,6 +1557,7 @@ export async function generateStepFromDirection(
   try {
     const exaSources = await buildExaSources(direction.searchQuery).catch(() => [])
     const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
+    let lastStreamedTextContent = ''
 
     const directionResponse = await requestAiText(
       provider,
@@ -1321,7 +1575,22 @@ export async function generateStepFromDirection(
         },
       ],
       0.4,
-      maxTokens
+      maxTokens,
+      {
+        onStreamingRawText: (rawText) => {
+          if (!options?.onStreamingText) {
+            return
+          }
+
+          const streamingTextContent = extractStreamingGeneratedTextContent(rawText)
+          if (!streamingTextContent || streamingTextContent === lastStreamedTextContent) {
+            return
+          }
+
+          lastStreamedTextContent = streamingTextContent
+          options.onStreamingText(streamingTextContent)
+        },
+      }
     )
 
     let parsed: unknown

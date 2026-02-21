@@ -17,6 +17,23 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     headers: { 'Content-Type': 'application/json' },
   })
 
+const sseResponse = (events: string[]): Response => {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(event))
+      }
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+}
+
 describe('ai service', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -767,5 +784,98 @@ describe('generateStepFromDirection (accept-time full generation)', () => {
     )
 
     expect(result.summary_title).toBe('Fallback Title From Direction')
+  })
+
+  it('falls back to non-stream JSON request when SSE stream yields no content', async () => {
+    const aiPayloads: Array<Record<string, unknown>> = []
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+
+      if (url.includes('/api/search/exa')) {
+        return jsonResponse({ results: [] })
+      }
+
+      if (url.includes('/api/ai/openai')) {
+        aiPayloads.push(body)
+
+        if (aiPayloads.length === 1) {
+          return sseResponse(['data: {}\n\n'])
+        }
+
+        return jsonResponse({
+          text: JSON.stringify([
+            {
+              type: 'MECHANISM',
+              summary_title: 'Recovered Direction',
+              text_content: 'Recovered from JSON fallback',
+            },
+          ]),
+        })
+      }
+
+      return jsonResponse({ error: 'Not found' }, 404)
+    })
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch)
+
+    const { generateStepFromDirection } = await import('@/lib/ai-service')
+    const result = await generateStepFromDirection(
+      makeDirection(),
+      [createNode('1', 'OBSERVATION', 'Initial finding')],
+      'Goal',
+      'openai',
+      'sk-test'
+    )
+
+    expect(result.text_content).toBe('Recovered from JSON fallback')
+    expect(aiPayloads).toHaveLength(2)
+    expect(aiPayloads[0]?.stream).toBe(true)
+    expect(aiPayloads[1]?.stream).toBe(false)
+  })
+
+  it('parses SSE content even in non-stream fallback when provider ignores stream flag', async () => {
+    const aiPayloads: Array<Record<string, unknown>> = []
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+
+      if (url.includes('/api/search/exa')) {
+        return jsonResponse({ results: [] })
+      }
+
+      if (url.includes('/api/ai/openai-compatible')) {
+        aiPayloads.push(body)
+
+        if (aiPayloads.length === 1) {
+          return sseResponse(['data: {}\n\n'])
+        }
+
+        return sseResponse([
+          'data: {"choices":[{"delta":{"content":"[{\\"type\\":\\"MECHANISM\\",\\"summary_title\\":\\"Recovered Direction\\",\\"text_content\\":\\"Recovered from fallback SSE\\"}]"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ])
+      }
+
+      return jsonResponse({ error: 'Not found' }, 404)
+    })
+
+    vi.stubGlobal('fetch', fetchMock as typeof fetch)
+
+    const { generateStepFromDirection } = await import('@/lib/ai-service')
+    const result = await generateStepFromDirection(
+      makeDirection(),
+      [createNode('1', 'OBSERVATION', 'Initial finding')],
+      'Goal',
+      'openai-compatible',
+      'sk-test'
+    )
+
+    expect(result.text_content).toBe('Recovered from fallback SSE')
+    expect(aiPayloads).toHaveLength(2)
+    expect(aiPayloads[0]?.stream).toBe(true)
+    expect(aiPayloads[1]?.stream).toBe(false)
   })
 })
