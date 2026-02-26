@@ -46,7 +46,7 @@ const COLLAPSED_TEXT_STYLE: React.CSSProperties = {
   overflow: 'hidden',
 }
 
-function ReadMoreIcon({ expanded }: { expanded: boolean }) {
+function InspectIcon() {
   return (
     <svg
       viewBox="0 0 20 20"
@@ -58,7 +58,7 @@ function ReadMoreIcon({ expanded }: { expanded: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {expanded ? <path d="M5 12l5-5 5 5" /> : <path d="M7 5l6 5-6 5" />}
+      <path d="M7 5l6 5-6 5" />
     </svg>
   )
 }
@@ -160,14 +160,12 @@ export function ResearchNodeCard({
   const [isGradingWithAi, setIsGradingWithAi] = useState(false)
   const [gradingError, setGradingError] = useState<string | null>(null)
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
-  const [isTextExpanded, setIsTextExpanded] = useState(false)
   const [shouldOfferTextToggle, setShouldOfferTextToggle] = useState(false)
 
   const textContent = data?.text_content ?? ''
   const summaryTitle = data?.summary_title?.trim() ?? ''
   const hasSummaryTitle = summaryTitle.length > 0
   const hasText = textContent.trim().length > 0
-  const isTextCollapsed = shouldOfferTextToggle && !isTextExpanded
   const nodeGrade = Math.min(5, Math.max(1, Math.round(data?.grade ?? 3)))
   const generationStatus = data?.generationStatus
   const generationError = data?.generationError
@@ -229,12 +227,6 @@ export function ResearchNodeCard({
   }, [selected])
 
   useEffect(() => {
-    if (!shouldOfferTextToggle && isTextExpanded) {
-      setIsTextExpanded(false)
-    }
-  }, [isTextExpanded, shouldOfferTextToggle])
-
-  useEffect(() => {
     if (!hasText) {
       setShouldOfferTextToggle(false)
       return
@@ -293,7 +285,7 @@ export function ResearchNodeCard({
     textContent,
     attachments,
     thumbnailSignature,
-    isTextCollapsed,
+    shouldOfferTextToggle,
     generationStatus,
     generationError,
     updateNodeInternals,
@@ -504,35 +496,29 @@ export function ResearchNodeCard({
         <div className="relative">
           <div
             className={`whitespace-pre-wrap break-words text-sm leading-7 ${hasText ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-400'}`}
-            style={isTextCollapsed ? COLLAPSED_TEXT_STYLE : undefined}
+            style={shouldOfferTextToggle ? COLLAPSED_TEXT_STYLE : undefined}
           >
             {hasText ? renderMarkdownEmphasis(textContent, citations) : placeholder}
           </div>
-          {isTextCollapsed ? (
+          {shouldOfferTextToggle ? (
             <div
               aria-hidden
               className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-white/0 via-white/80 to-white dark:from-slate-800/0 dark:via-slate-800/80 dark:to-slate-800"
             />
           ) : null}
         </div>
-        {shouldOfferTextToggle ? (
-          <button
-            type="button"
-            className="nodrag mt-0.5 inline-flex w-full items-center justify-end gap-1.5 rounded-md px-1 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-slate-100"
-            onClick={() => {
-              if (isTextCollapsed) {
-                window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
-                  detail: { nodeId: id }
-                }))
-              } else {
-                setIsTextExpanded(false)
-              }
-            }}
-          >
-            <ReadMoreIcon expanded={!isTextCollapsed} />
-            <span>{isTextCollapsed ? t('nodes.card.readMore') : t('nodes.card.showLess')}</span>
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="nodrag mt-0.5 inline-flex w-full items-center justify-end gap-1.5 rounded-md px-1 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-slate-100"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
+              detail: { nodeId: id }
+            }))
+          }}
+        >
+          <InspectIcon />
+          <span>{t('nodes.card.readMore')}</span>
+        </button>
       </div>
       {citations.length > 0 ? <ReferencesSection citations={citations} /> : null}
 

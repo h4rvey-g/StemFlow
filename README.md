@@ -11,7 +11,7 @@ Everything runs in your browser. Your data stays in IndexedDB. Your API keys sta
 [] Add a "Fold all" and "Expand all" button, which folds/expands all nodes on the canvas except the pinned ones
 [x] add bright and dark modes
 [] Add example project and tutorial
-[] Add translate button on each node to translate from English to Chinese and vice versa; add auto-translate option in settings
+[x] Add translate button on each node to translate from English to Chinese and vice versa; add auto-translate option in settings
 [] Opt for too many nodes/content: RAG?
 [x] Add stream for AI
 [] Add Github sync

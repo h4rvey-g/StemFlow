@@ -44,7 +44,7 @@
     },
     "card": {
       "references": "参考文献 ({{count}})",
-      "readMore": "阅读更多",
+      "readMore": "查看",
       "showLess": "收起",
       "processingFile": "正在处理文件...",
       "gradingFailed": "AI 评分失败。",

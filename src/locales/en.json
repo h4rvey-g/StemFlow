@@ -44,7 +44,7 @@
     },
     "card": {
       "references": "References ({{count}})",
-      "readMore": "Read more",
+      "readMore": "Inspect",
       "showLess": "Show less",
       "processingFile": "Processing file...",
       "gradingFailed": "Failed to grade node with AI.",

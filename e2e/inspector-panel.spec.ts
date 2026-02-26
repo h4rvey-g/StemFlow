@@ -8,7 +8,7 @@ const VALIDATION_LABEL = /Validation|nodes\.validation\.title/i
 const CLOSE_LABEL = /(Close|common\.close)/i
 const INSPECTOR_TITLE_LABEL = /Inspector|inspector\.title/i
 const LONG_TEXT_LABEL = /Full Text|全文|inspector\.longText/i
-const READ_MORE_LABEL = /Read more|nodes\.card\.readMore/i
+const READ_MORE_LABEL = /Inspect|nodes\.card\.readMore/i
 
 const getNodeByLabel = (page: Page, label: RegExp) =>
   page.locator('div.react-flow__node').filter({ hasText: label }).first()
@@ -78,7 +78,7 @@ test.describe('Inspector panel regression suite', () => {
     await page.screenshot({ path: evidencePath('task-10-e2e-happy.png') })
   })
 
-  test('Read More intent opens inspector long-text view', async ({ page }) => {
+  test('Inspect intent opens inspector long-text view', async ({ page }) => {
     const canvas = page.locator('.react-flow__pane')
     await dragSidebarTileToCanvas(page, 'sidebar-observation', { x: 220, y: 300 })
 

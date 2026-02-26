@@ -75,7 +75,7 @@ describe('Node components', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('dispatches read-more intent event when Read More is clicked', async () => {
+  it('dispatches read-more intent event when Inspect is clicked', async () => {
     const longText = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6'
     const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight')
     const originalGetComputedStyle = window.getComputedStyle
@@ -120,7 +120,7 @@ describe('Node components', () => {
         />
       )
       
-      const readMoreButton = await screen.findByRole('button', { name: /Read more|nodes\.card\.readMore/i })
+      const readMoreButton = await screen.findByRole('button', { name: /Inspect|nodes\.card\.readMore/i })
       fireEvent.click(readMoreButton)
 
       expect(eventListener).toHaveBeenCalledTimes(1)
