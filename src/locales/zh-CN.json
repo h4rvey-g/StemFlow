@@ -205,5 +205,36 @@
       "title": "AI 操作",
       "active": "活动：{{action}}"
     }
+  },
+  "onboarding": {
+    "popup": {
+      "title": "我有一个...",
+      "closeAriaLabel": "关闭",
+      "hypothesis": {
+        "title": "我有一个假设",
+        "description": "从您想要探索的提议机制或理论开始。"
+      },
+      "observation": {
+        "title": "我有一个观察",
+        "description": "从您注意到的数据、事实或现象开始。"
+      },
+      "contentLabel": {
+        "mechanism": "描述您的假设",
+        "observation": "描述您的观察"
+      },
+      "contentPlaceholder": {
+        "mechanism": "例如：蛋白质 X 磷酸化调节通路 Y...",
+        "observation": "例如：在样品 B 中观察到细胞生长增加..."
+      },
+      "changeType": "更改类型",
+      "createButton": "创建节点",
+      "creatingButton": "创建中..."
+    },
+    "emptyCanvas": {
+      "title": "开始您的研究",
+      "description": "通过探索画布或使用指南开始。",
+      "getStartedButton": "开始"
+    }
   }
 }
+

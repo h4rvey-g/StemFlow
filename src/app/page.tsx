@@ -31,6 +31,8 @@ import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
 import { InspectorPanel } from '@/components/ui/InspectorPanel'
 import { InspectorAiActions } from '@/components/ui/InspectorAiActions'
 import { InspectorAttachments } from '@/components/ui/InspectorAttachments'
+import { OnboardingPopup } from '@/components/ui/OnboardingPopup'
+import { EmptyCanvasOverlay } from '@/components/ui/EmptyCanvasOverlay'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
 import { buildManualGroupNodes } from '@/lib/graph'
 import type { NodeData, NodeFileAttachment } from '@/types/nodes'
@@ -42,6 +44,9 @@ const GHOST_ACTION_BAR_GAP_PX = 12
 const GHOST_ACTION_BAR_HEIGHT_PX = 42
 const FALLBACK_GHOST_NODE_WIDTH_PX = 320
 const FALLBACK_GHOST_NODE_HEIGHT_PX = 190
+const ONBOARDING_SHOWN_KEY_PREFIX = 'stemflow:onboardingShown'
+
+type OnboardingNodeType = 'OBSERVATION' | 'MECHANISM'
 
 type SidebarNodeType = Exclude<NodeType, 'GHOST'>
 
@@ -72,6 +77,27 @@ const normalizeAttachments = (nodeData?: NodeData): NodeFileAttachment[] => {
     textExcerpt: nodeData.fileTextExcerpt ?? null,
     imageDescription: nodeData.imageDescription ?? null,
   }]
+}
+
+const getStorageErrorMeta = (error: unknown): { name: string; message: string } => {
+  if (error && typeof error === 'object') {
+    const name =
+      'name' in error && typeof (error as { name?: unknown }).name === 'string'
+        ? (error as { name: string }).name
+        : 'Error'
+    const message =
+      'message' in error && typeof (error as { message?: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : 'Unknown localStorage error'
+
+    return { name, message }
+  }
+
+  if (typeof error === 'string') {
+    return { name: 'Error', message: error }
+  }
+
+  return { name: 'Error', message: 'Unknown localStorage error' }
 }
 
 const getNodeCenter = (node: OMVNode) => {
@@ -214,6 +240,7 @@ function Canvas() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
   const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
   
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const isProjectLoaded = useProjectStore((s) => s.isLoaded)
@@ -234,6 +261,79 @@ function Canvas() {
   const createManualGroup = useStore((s) => s.createManualGroup)
   const deleteManualGroup = useStore((s) => s.deleteManualGroup)
   const undoLastAction = useStore((s) => s.undoLastAction)
+  const isCanvasLoading = useStore((s) => s.isLoading)
+
+  const isCanvasEmpty = nodes.length === 0
+
+  const onboardingShownKey = useMemo(
+    () => (activeProjectId ? `${ONBOARDING_SHOWN_KEY_PREFIX}:${activeProjectId}` : null),
+    [activeProjectId]
+  )
+
+  const readOnboardingShown = useCallback((key: string): boolean => {
+    try {
+      return window.localStorage.getItem(key) === 'true'
+    } catch (error) {
+      const { name, message } = getStorageErrorMeta(error)
+      if (name === 'QuotaExceededError') {
+      console.warn(`Failed to read onboarding shown state: ${name}: ${message}`)
+      } else {
+        console.error(`Failed to read onboarding shown state: ${name}: ${message}`)
+      }
+      return false
+    }
+  }, [])
+
+  const persistOnboardingShown = useCallback((key: string) => {
+    try {
+      window.localStorage.setItem(key, 'true')
+    } catch (error) {
+      const { name, message } = getStorageErrorMeta(error)
+      if (name === 'QuotaExceededError') {
+        console.warn(`Failed to persist onboarding shown state: ${name}: ${message}`)
+      } else {
+        console.error(`Failed to persist onboarding shown state: ${name}: ${message}`)
+      }
+    }
+  }, [])
+
+  const markOnboardingSeen = useCallback(() => {
+    if (!onboardingShownKey) return
+    persistOnboardingShown(onboardingShownKey)
+  }, [onboardingShownKey, persistOnboardingShown])
+
+  const handleOnboardingClose = useCallback(() => {
+    setShowOnboarding(false)
+    markOnboardingSeen()
+  }, [markOnboardingSeen])
+
+  const handleOnboardingCreateNode = useCallback(
+    (type: OnboardingNodeType, text: string) => {
+      const position = screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      })
+
+      const newNode: OMVNode = {
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type,
+        position,
+        data: {
+          text_content: text,
+        },
+      }
+
+      addNode(newNode)
+      setShowOnboarding(false)
+      markOnboardingSeen()
+    },
+    [addNode, markOnboardingSeen, screenToFlowPosition]
+  )
+
+  const handleOpenOnboarding = useCallback(() => {
+    if (!isCanvasEmpty) return
+    setShowOnboarding(true)
+  }, [isCanvasEmpty])
 
   useEffect(() => {
     useProjectStore.getState().loadProjects()
@@ -273,6 +373,24 @@ function Canvas() {
     if (!isProjectLoaded || !activeProjectId) return
     loadFromDb()
   }, [isProjectLoaded, activeProjectId, loadFromDb])
+
+  useEffect(() => {
+    if (!isProjectLoaded || isCanvasLoading || !onboardingShownKey) return
+
+    if (!isCanvasEmpty) {
+      setShowOnboarding(false)
+      return
+    }
+
+    const shown = readOnboardingShown(onboardingShownKey)
+    setShowOnboarding(!shown)
+  }, [
+    isProjectLoaded,
+    isCanvasLoading,
+    onboardingShownKey,
+    isCanvasEmpty,
+    readOnboardingShown,
+  ])
 
   useEffect(() => {
     const isTextEditingTarget = (target: EventTarget | null): boolean => {
@@ -958,6 +1076,9 @@ function Canvas() {
               {aiError}
             </div>
           )}
+          {isCanvasEmpty && !showOnboarding ? (
+            <EmptyCanvasOverlay onGetStarted={handleOpenOnboarding} />
+          ) : null}
           {dragDropPreview && previewTargetNode && (
             <>
               {previewLine && (
@@ -1074,6 +1195,11 @@ function Canvas() {
               </>
             ) : null}
           </ReactFlow>
+          <OnboardingPopup
+            isOpen={showOnboarding}
+            onClose={handleOnboardingClose}
+            onCreateNode={handleOnboardingCreateNode}
+          />
         </div>
         <InspectorPanel 
           isOpen={isInspectorOpen} 

@@ -205,5 +205,35 @@
       "title": "AI Actions",
       "active": "Active: {{action}}"
     }
+  },
+  "onboarding": {
+    "popup": {
+      "title": "I have a...",
+      "closeAriaLabel": "Close",
+      "hypothesis": {
+        "title": "I have a Hypothesis",
+        "description": "Start with a proposed mechanism or theory you want to explore."
+      },
+      "observation": {
+        "title": "I have an Observation",
+        "description": "Start with data, a fact, or a phenomenon you've noticed."
+      },
+      "contentLabel": {
+        "mechanism": "Describe your hypothesis",
+        "observation": "Describe your observation"
+      },
+      "contentPlaceholder": {
+        "mechanism": "E.g., Protein X phosphorylation regulates pathway Y...",
+        "observation": "E.g., Increased cell growth observed in sample B..."
+      },
+      "changeType": "Change type",
+      "createButton": "Create Node",
+      "creatingButton": "Creating..."
+    },
+    "emptyCanvas": {
+      "title": "Start Your Research",
+      "description": "Begin by exploring the canvas or use the guide to get started.",
+      "getStartedButton": "Get Started"
+    }
   }
 }
