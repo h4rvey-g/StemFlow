@@ -36,6 +36,7 @@ import { OnboardingPopup } from '@/components/ui/OnboardingPopup'
 import { EmptyCanvasOverlay } from '@/components/ui/EmptyCanvasOverlay'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
 import { buildManualGroupNodes } from '@/lib/graph'
+import { useGenerate } from '@/hooks/useGenerate'
 import type { NodeData, NodeFileAttachment } from '@/types/nodes'
 import { AlignLeft, Globe, Sun, Moon } from 'lucide-react'
 
@@ -208,12 +209,12 @@ function Canvas() {
   const loadFromDb = useStore((s) => s.loadFromDb)
   const updateNode = useStore((s) => s.updateNode)
   const formatCanvas = useStore((s) => s.formatCanvas)
-  const acceptAllGhostNodes = useStore((s) => s.acceptAllGhostNodes)
   const dismissAllGhostNodes = useStore((s) => s.dismissAllGhostNodes)
   const createManualGroup = useStore((s) => s.createManualGroup)
   const deleteManualGroup = useStore((s) => s.deleteManualGroup)
   const undoLastAction = useStore((s) => s.undoLastAction)
   const isCanvasLoading = useStore((s) => s.isLoading)
+  const { acceptAllGhosts } = useGenerate()
 
   const isCanvasEmpty = nodes.length === 0
   const isCanvasHydratedForActiveProject =
@@ -595,16 +596,23 @@ function Canvas() {
     [addEdge, addNode, clearDragDropPreview, getZoom, nodes, screenToFlowPosition, sidebarDragType, t]
   )
 
-  const handleCanvasDragLeave = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
+  useEffect(() => {
+    const wrapper = reactFlowWrapper.current
+    if (!wrapper) return
+
+    const handleWrapperDragLeave = (event: DragEvent) => {
       const nextTarget = event.relatedTarget
-      if (nextTarget instanceof HTMLElement && event.currentTarget.contains(nextTarget)) {
+      if (nextTarget instanceof HTMLElement && wrapper.contains(nextTarget)) {
         return
       }
       clearDragDropPreview()
-    },
-    [clearDragDropPreview]
-  )
+    }
+
+    wrapper.addEventListener('dragleave', handleWrapperDragLeave)
+    return () => {
+      wrapper.removeEventListener('dragleave', handleWrapperDragLeave)
+    }
+  }, [clearDragDropPreview])
 
   const previewTargetNode = useMemo(() => {
     if (!dragDropPreview) return null
@@ -1017,6 +1025,7 @@ function Canvas() {
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-300">
           <button
+            type="button"
             onClick={handleThemeToggle}
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
             aria-label={isDarkTheme ? t('canvas.switchToBrightTheme') : t('canvas.switchToDarkTheme')}
@@ -1043,6 +1052,7 @@ function Canvas() {
             </select>
           </label>
           <button
+            type="button"
             onMouseDown={handleGroupSelectedMouseDown}
             className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100 dark:border-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200 dark:hover:border-cyan-600 dark:hover:bg-cyan-900/50"
             data-testid="topbar-group-selected"
@@ -1050,6 +1060,7 @@ function Canvas() {
             {t('canvas.groupSelected', { count: selectedNodeIds.length })}
           </button>
           <button
+            type="button"
             onClick={formatCanvas}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
             data-testid="topbar-format-canvas"
@@ -1064,7 +1075,6 @@ function Canvas() {
         <div
           className="relative flex-1 overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800"
           ref={reactFlowWrapper}
-          onDragLeave={handleCanvasDragLeave}
           style={{ height: '100%', width: '100%' }}
         >
           {aiError && (
@@ -1079,6 +1089,7 @@ function Canvas() {
             <>
               {previewLine && (
                 <svg className="pointer-events-none absolute inset-0 z-20 overflow-visible" aria-hidden>
+                  <title>Drag connection preview</title>
                   <defs>
                     <linearGradient id="drag-link-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
                       <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.75" />
@@ -1174,13 +1185,17 @@ function Canvas() {
                   data-testid="ghost-suggestion-actions"
                 >
                   <button
-                    onClick={acceptAllGhostNodes}
+                    type="button"
+                    onClick={() => {
+                      void acceptAllGhosts()
+                    }}
                     className="inline-flex items-center rounded-full border border-emerald-300/80 bg-white/88 px-3 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50"
                     data-testid="ghost-group-accept-all"
                   >
                     {t('canvas.acceptAll', { count: ghostSuggestionCluster.count })}
                   </button>
                   <button
+                    type="button"
                     onClick={dismissAllGhostNodes}
                     className="inline-flex items-center rounded-full border border-slate-300/80 bg-white/88 px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
                     data-testid="ghost-group-dismiss-all"

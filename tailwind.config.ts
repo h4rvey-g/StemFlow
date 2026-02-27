@@ -14,11 +14,10 @@ const config: Config = {
       fontFamily: {
         sans: [
           'var(--font-inter)',
-          'var(--font-noto-sans-sc)',
           'Inter',
-          'Noto Sans SC',
           'PingFang SC',
           'Microsoft YaHei',
+          'Noto Sans SC',
           'ui-sans-serif',
           'system-ui',
           '-apple-system',

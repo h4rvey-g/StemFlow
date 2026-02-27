@@ -333,6 +333,52 @@ describe('useGenerate', () => {
       })
     })
 
+    it('acceptAllGhosts triggers generation for each current ghost', async () => {
+      useStore.setState({ ghostNodes: [MOCK_GHOST, MOCK_GHOST_2] })
+
+      mockCreatePendingNodeFromGhost.mockImplementation((ghostId: string) => {
+        if (ghostId === 'ghost-1') return 'pending-node-1'
+        if (ghostId === 'ghost-2') return 'pending-node-2'
+        return null
+      })
+
+      vi.spyOn(aiService, 'generateStepFromDirection')
+        .mockResolvedValueOnce({
+          type: 'MECHANISM',
+          text_content: 'Mechanism content',
+          summary_title: 'Mechanism summary',
+          citations: [],
+        })
+        .mockResolvedValueOnce({
+          type: 'VALIDATION',
+          text_content: 'Validation content',
+          summary_title: 'Validation summary',
+          citations: [],
+        })
+
+      const { result } = renderHook(() => useGenerate())
+
+      await act(async () => {
+        await result.current.acceptAllGhosts()
+      })
+
+      expect(mockCreatePendingNodeFromGhost).toHaveBeenCalledTimes(2)
+      expect(mockCreatePendingNodeFromGhost).toHaveBeenNthCalledWith(1, 'ghost-1')
+      expect(mockCreatePendingNodeFromGhost).toHaveBeenNthCalledWith(2, 'ghost-2')
+
+      expect(aiService.generateStepFromDirection).toHaveBeenCalledTimes(2)
+      expect(mockHydratePendingNode).toHaveBeenCalledWith('pending-node-1', {
+        text_content: 'Mechanism content',
+        summary_title: 'Mechanism summary',
+        citations: [],
+      })
+      expect(mockHydratePendingNode).toHaveBeenCalledWith('pending-node-2', {
+        text_content: 'Validation content',
+        summary_title: 'Validation summary',
+        citations: [],
+      })
+    })
+
     it('multi-accept concurrent success: two quick accepts create independent pending hydrations', async () => {
       const staleAcceptReadyGhosts = [MOCK_GHOST, MOCK_GHOST_2]
       useStore.setState({ ghostNodes: [MOCK_GHOST] })

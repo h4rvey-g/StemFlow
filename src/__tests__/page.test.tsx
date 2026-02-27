@@ -6,11 +6,22 @@ import type { StoreState } from '@/stores/useStore'
 import { useStore } from '@/stores/useStore'
 
 const setThemeMock = vi.fn()
+const acceptAllGhostsMock = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('next-themes', () => ({
   useTheme: () => ({
     theme: 'bright',
     setTheme: setThemeMock,
+  }),
+}))
+
+vi.mock('@/hooks/useGenerate', () => ({
+  useGenerate: () => ({
+    acceptAllGhosts: acceptAllGhostsMock,
+    acceptGhost: vi.fn(),
+    generate: vi.fn(),
+    retryPendingNodeGeneration: vi.fn(),
+    isGenerating: false,
   }),
 }))
 
@@ -93,8 +104,11 @@ vi.mock('@/stores/useStore', () => {
     setExperimentalConditions: vi.fn(),
   }
 
-  const useStore = <T,>(selector?: (state: StoreState) => T) =>
-    selector ? selector(state) : (state as unknown as T)
+  const useStore = Object.assign(
+    <T,>(selector?: (state: StoreState) => T) =>
+      selector ? selector(state) : (state as unknown as T),
+    { getState: () => state }
+  )
 
   return {
     useStore,
@@ -110,6 +124,8 @@ describe('Canvas Page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setThemeMock.mockReset()
+    acceptAllGhostsMock.mockClear()
+    acceptAllGhostsMock.mockResolvedValue(undefined)
   })
 
   it('renders the sidebar and canvas', () => {
@@ -231,7 +247,7 @@ describe('Canvas Page', () => {
     fireEvent.click(acceptAllButton)
     fireEvent.click(dismissAllButton)
 
-    expect(state.acceptAllGhostNodes).toHaveBeenCalledTimes(1)
+    expect(acceptAllGhostsMock).toHaveBeenCalledTimes(1)
     expect(state.dismissAllGhostNodes).toHaveBeenCalledTimes(1)
   })
 })

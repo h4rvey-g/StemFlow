@@ -270,6 +270,12 @@ export function useGenerate() {
     runAcceptGeneration,
   ])
 
+  const acceptAllGhosts = useCallback(async () => {
+    const ghostIds = useStore.getState().ghostNodes.map((ghostNode) => ghostNode.id)
+
+    await Promise.all(ghostIds.map((ghostId) => acceptGhost(ghostId)))
+  }, [acceptGhost])
+
   /**
    * Retries generation for a node that failed.
    * Uses the cached AcceptRetryContext to ensure the same direction is used.
@@ -287,5 +293,5 @@ export function useGenerate() {
     runAcceptGeneration,
   ])
 
-  return { generate, acceptGhost, retryPendingNodeGeneration, isGenerating }
+  return { generate, acceptGhost, acceptAllGhosts, retryPendingNodeGeneration, isGenerating }
 }
