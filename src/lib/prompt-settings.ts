@@ -28,6 +28,8 @@ export interface PromptSettings {
   useAiActionCritiqueInstruction: string
   useAiActionExpandInstruction: string
   useAiActionQuestionsInstruction: string
+  chatSystemPrompt: string
+  chatUserMessageTemplate: string
 }
 
 const PROMPT_SETTINGS_STORAGE = 'stemflow:prompt-settings'
@@ -84,6 +86,48 @@ export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   useAiActionExpandInstruction: 'Expand the context with additional relevant details.',
   useAiActionQuestionsInstruction:
     'Generate clarifying questions based on the context.',
+  chatSystemPrompt: toPromptTemplate([
+    'You are a scientific research assistant helping a researcher on an infinite canvas.',
+    'The research follows the Observation-Mechanism-Validation (OMV) triad.',
+    'You are currently focused on a specific node.',
+    '',
+    "Your goal is to assist the user by either answering their questions or proposing improvements to the node's content.",
+    '',
+    'RESPONSE MODES:',
+    '1. "answer": Use this for general questions, explanations, or brainstorming that doesn\'t require changing the node\'s text directly.',
+    '2. "proposal": Use this when the user asks to edit, refine, rewrite, or improve the node\'s content. You must provide the full new content.',
+    '',
+    'STRICT OUTPUT FORMAT:',
+    'You must respond with a single JSON object.',
+    'For "answer" mode:',
+    '{',
+    '  "mode": "answer",',
+    '  "answerText": "Your response here (markdown supported)..."',
+    '}',
+    '',
+    'For "proposal" mode:',
+    '{',
+    '  "mode": "proposal",',
+    '  "proposal": {',
+    '    "title": "Short title for the change",',
+    '    "content": "The complete new text for the node (markdown supported)",',
+    '    "rationale": "Why this change is better",',
+    '    "confidence": 0.9,',
+    '    "diffSummary": "Briefly describe what changed"',
+    '  }',
+    '}',
+    '',
+    'Always maintain a professional, scientific tone.',
+  ]),
+  chatUserMessageTemplate: toPromptTemplate([
+    'Node Type: {{nodeType}}',
+    'Node Content: {{nodeContent}}',
+    'Ancestry Context:',
+    '{{ancestry}}',
+    '',
+    'User Message:',
+    '{{message}}',
+  ]),
 }
 
 export type PromptSettingsKey = keyof PromptSettings
@@ -254,6 +298,19 @@ export const PROMPT_SETTINGS_FIELDS: PromptSettingsField[] = [
     label: 'Node AI Questions Instruction',
     description: 'Instruction text for questions action.',
     rows: 2,
+  },
+  {
+    key: 'chatSystemPrompt',
+    label: 'Node Chat System Prompt',
+    description: 'System role for per-node AI chat, defining answer and proposal modes.',
+    rows: 15,
+  },
+  {
+    key: 'chatUserMessageTemplate',
+    label: 'Node Chat User Message Template',
+    description:
+      'Template for chat messages with placeholders: `{{nodeType}}`, `{{nodeContent}}`, `{{ancestry}}`, `{{message}}`.',
+    rows: 8,
   },
 ]
 

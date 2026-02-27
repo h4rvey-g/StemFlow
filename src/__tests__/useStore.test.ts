@@ -1017,6 +1017,42 @@ describe('useStore', () => {
     expect(useStore.getState().nodes).toHaveLength(0)
   })
 
+  it('undoes node data updates and skips no-op update snapshots', async () => {
+    const { useStore } = await createStore()
+
+    useStore.getState().addNode({
+      id: 'undo-data-1',
+      type: 'OBSERVATION',
+      data: { text_content: 'original text', summary_title: 'stable title' },
+      position: { x: 0, y: 0 },
+    })
+
+    const undoDepthAfterAdd = useStore.getState().undoStack.length
+
+    useStore
+      .getState()
+      .updateNodeData('undo-data-1', { text_content: 'updated text', summary_title: 'stable title' })
+
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-data-1')?.data.text_content).toBe(
+      'updated text'
+    )
+    expect(useStore.getState().undoStack).toHaveLength(undoDepthAfterAdd + 1)
+
+    useStore.getState().undoLastAction()
+
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-data-1')?.data.text_content).toBe(
+      'original text'
+    )
+    expect(useStore.getState().nodes.find((node) => node.id === 'undo-data-1')?.data.summary_title).toBe(
+      'stable title'
+    )
+
+    const undoDepthAfterUndo = useStore.getState().undoStack.length
+    useStore.getState().updateNodeData('undo-data-1', { text_content: 'original text' })
+
+    expect(useStore.getState().undoStack).toHaveLength(undoDepthAfterUndo)
+  })
+
   it('undoes node deletion and restores connected edges', async () => {
     const { useStore } = await createStore()
 

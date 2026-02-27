@@ -203,6 +203,23 @@ describe('InspectorAiActions', () => {
       rerender(<InspectorAiActions nodeId="node-1" />)
       
       expect(screen.queryByText('Previous error')).not.toBeInTheDocument()
-    })
+  })
+
+  it('chat action dispatches stemflow:open-chat event', () => {
+    const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent')
+    
+    render(<InspectorAiActions nodeId="node-1" />)
+    
+    fireEvent.click(screen.getByText('Chat'))
+    
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'stemflow:open-chat',
+        detail: { nodeId: 'node-1' },
+      })
+    )
+    
+    dispatchEventSpy.mockRestore()
+  })
   })
 })

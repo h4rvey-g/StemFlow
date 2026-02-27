@@ -12,22 +12,25 @@ import type { OMVNode, OMVEdge, NodeType } from '@/types/nodes'
 
 type TranslationLanguage = 'zh-CN' | 'en'
 
+type InspectorAction = AiAction
+
 interface InspectorAiActionsProps {
   nodeId: string
 }
 
-const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation']
+const ACTIONS: InspectorAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation', 'chat']
 
-const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
+const ACTION_TRANSLATION_KEYS: Record<InspectorAction, string> = {
   summarize: 'summarize',
   'suggest-mechanism': 'suggestMechanism',
   critique: 'critique',
   expand: 'expand',
   questions: 'generateQuestions',
   translation: 'translation',
+  chat: 'chat',
 }
 
-const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
+const getActionTranslationKey = (action: InspectorAction, nodeType: NodeType) =>
   action === 'suggest-mechanism' && nodeType === 'MECHANISM'
     ? 'suggestValidation'
     : ACTION_TRANSLATION_KEYS[action]
@@ -35,7 +38,7 @@ const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
 export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const { t } = useTranslation()
   const { isLoading, streamingText, error, executeAction, translateNodeContent, cancel } = useAi(nodeId)
-  const [activeAction, setActiveAction] = useState<AiAction | null>(null)
+  const [activeAction, setActiveAction] = useState<InspectorAction | null>(null)
   const [translationLanguage, setTranslationLanguage] = useState<TranslationLanguage>('zh-CN')
   const [showTranslationLanguagePicker, setShowTranslationLanguagePicker] = useState(false)
   
@@ -46,7 +49,12 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const sourceNode = nodes.find((n) => n.id === nodeId)
   const sourceType = sourceNode?.type ?? 'OBSERVATION'
 
-  const runAction = async (action: AiAction) => {
+  const runAction = async (action: InspectorAction) => {
+    if (action === 'chat') {
+      window.dispatchEvent(new CustomEvent('stemflow:open-chat', { detail: { nodeId } }))
+      return
+    }
+
     if (action === 'translation') {
       setActiveAction(action)
       setShowTranslationLanguagePicker(true)

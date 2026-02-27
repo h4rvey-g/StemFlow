@@ -80,6 +80,7 @@ const enTranslations = {
   'popover.actions.expand': 'Expand',
   'popover.actions.generateQuestions': 'Generate Questions',
   'popover.actions.translation': 'Translation',
+  'popover.actions.chat': 'Chat',
   'popover.translation.languageLabel': 'Target language',
   'popover.translation.translate': 'Translate',
   'popover.translation.languages.zhCN': '简体中文',

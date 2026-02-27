@@ -45,7 +45,7 @@ export interface AiStreamChunk {
   done: boolean
 }
 
-export type AiAction = 'summarize' | 'suggest-mechanism' | 'critique' | 'expand' | 'questions' | 'translation'
+export type AiAction = 'summarize' | 'suggest-mechanism' | 'critique' | 'expand' | 'questions' | 'translation' | 'chat'
 
 export class AiError extends Error {
   readonly provider: AiProvider

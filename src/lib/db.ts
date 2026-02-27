@@ -1,6 +1,7 @@
 import Dexie, { Table } from 'dexie'
 
 import type { OMVNode, OMVEdge, Project } from '@/types/nodes'
+import type { ChatThread } from '@/types/chat'
 
 export interface DbNode extends OMVNode {
   parentIds: string[]
@@ -26,6 +27,7 @@ export type NodeTable = Table<DbNode, string>
 export type EdgeTable = Table<DbEdge, string>
 export type ProjectsTable = Table<Project, string>
 export type FilesTable = Table<DbFile, string>
+export type ChatThreadsTable = Table<ChatThread, string>
 
 export const DEFAULT_PROJECT_ID = 'default-project'
 
@@ -34,6 +36,7 @@ class StemFlowDB extends Dexie {
   edges!: EdgeTable
   projects!: ProjectsTable
   files!: FilesTable
+  chatThreads!: ChatThreadsTable
 
   constructor() {
     super('StemFlowDB')
@@ -55,7 +58,8 @@ class StemFlowDB extends Dexie {
         nodes: 'id, type, projectId, *parentIds',
         edges: 'id, source, target, projectId',
         projects: 'id, name, created_at, updated_at',
-        files: 'id, nodeId, projectId, mimeType, uploadedAt'
+        files: 'id, nodeId, projectId, mimeType, uploadedAt',
+        chatThreads: 'nodeId, createdAt'
       })
       .upgrade(async (tx) => {
         const assignProject = (record: Record<string, unknown>) => {
@@ -77,6 +81,14 @@ class StemFlowDB extends Dexie {
           })
         }
       })
+
+    this.version(4).stores({
+      nodes: 'id, type, projectId, *parentIds',
+      edges: 'id, source, target, projectId',
+      projects: 'id, name, created_at, updated_at',
+      files: 'id, nodeId, projectId, mimeType, uploadedAt',
+      chatThreads: 'nodeId, createdAt'
+    })
   }
 }
 

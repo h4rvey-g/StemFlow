@@ -31,6 +31,7 @@ import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
 import { InspectorPanel } from '@/components/ui/InspectorPanel'
 import { InspectorAiActions } from '@/components/ui/InspectorAiActions'
 import { InspectorAttachments } from '@/components/ui/InspectorAttachments'
+import { NodeChatPanel } from '@/components/ui/NodeChatPanel'
 import { OnboardingPopup } from '@/components/ui/OnboardingPopup'
 import { EmptyCanvasOverlay } from '@/components/ui/EmptyCanvasOverlay'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
@@ -240,6 +241,7 @@ function Canvas() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
   const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
+  const [chatNodeId, setChatNodeId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
   
@@ -518,16 +520,29 @@ function Canvas() {
         setInspectorNodeId(nodeId)
       }
     }
+    const handleOpenChat = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return
+      const detail = event.detail
+      const nodeId = detail && typeof detail === 'object' && 'nodeId' in detail
+        ? (detail.nodeId as string)
+        : null
+      
+      if (nodeId) {
+        setChatNodeId(nodeId)
+      }
+    }
 
     window.addEventListener('dragend', handleDragEnd)
     window.addEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
     window.addEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
     window.addEventListener('stemflow:read-more-intent', handleReadMoreIntent as EventListener)
+    window.addEventListener('stemflow:open-chat', handleOpenChat as EventListener)
     return () => {
       window.removeEventListener('dragend', handleDragEnd)
       window.removeEventListener('stemflow:sidebar-drag-start', handleSidebarDragStart as EventListener)
       window.removeEventListener('stemflow:sidebar-drag-end', handleSidebarDragEnd)
       window.removeEventListener('stemflow:read-more-intent', handleReadMoreIntent as EventListener)
+      window.removeEventListener('stemflow:open-chat', handleOpenChat as EventListener)
     }
   }, [])
 
@@ -1255,6 +1270,7 @@ function Canvas() {
             </>
           )}
         </InspectorPanel>
+        <NodeChatPanel nodeId={chatNodeId} onClose={() => setChatNodeId(null)} />
       </div>
     </div>
   )

@@ -179,7 +179,8 @@
       "critique": "批评",
       "expand": "扩展",
       "generateQuestions": "生成问题",
-      "translation": "翻译"
+      "translation": "翻译",
+      "chat": "聊天"
     },
     "translation": {
       "languageLabel": "目标语言",

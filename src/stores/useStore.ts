@@ -174,6 +174,11 @@ type UndoAction =
       nodeId: string
     }
   | {
+      type: 'node-data-update'
+      nodeId: string
+      previousData: Partial<NodeData>
+    }
+  | {
       type: 'node-delete'
       nodes: OMVNode[]
       edges: OMVEdge[]
@@ -394,19 +399,44 @@ export const useStore = create<StoreState>((set) => ({
   },
   updateNodeData: (id, data) => {
     set((state) => {
+      const nodeToUpdate = state.nodes.find((node) => node.id === id)
+      if (!nodeToUpdate) {
+        return state
+      }
+
+      const changedEntries = (Object.keys(data) as Array<keyof NodeData>)
+        .filter((key) => nodeToUpdate.data[key] !== data[key])
+        .map((key) => [key, data[key]] as const)
+
+      if (changedEntries.length === 0) {
+        return state
+      }
+
+      const previousData = Object.fromEntries(
+        changedEntries.map(([key]) => [key, nodeToUpdate.data[key]])
+      ) as Partial<NodeData>
+      const changedData = Object.fromEntries(changedEntries) as Partial<NodeData>
+
       const nodes = state.nodes.map((node) =>
         node.id === id
           ? {
               ...node,
               data: {
                 ...node.data,
-                ...data,
+                ...changedData,
               },
             }
           : node
       )
       schedulePersist(nodes, state.edges)
-      return { nodes }
+      return {
+        nodes,
+        undoStack: pushUndoAction(state.undoStack, {
+          type: 'node-data-update',
+          nodeId: id,
+          previousData,
+        }),
+      }
     })
   },
   deleteNode: (id) => {
@@ -869,6 +899,29 @@ export const useStore = create<StoreState>((set) => ({
           console.error('Failed to delete node attachments during undo:', error)
         })
         return { nodes, edges, undoStack }
+      }
+
+      if (action.type === 'node-data-update') {
+        let didRestore = false
+        const nodes = state.nodes.map((node) => {
+          if (node.id !== action.nodeId) return node
+
+          didRestore = true
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              ...action.previousData,
+            },
+          }
+        })
+
+        if (!didRestore) {
+          return { undoStack }
+        }
+
+        schedulePersist(nodes, state.edges)
+        return { nodes, undoStack }
       }
 
       const restoredNodeIds = new Set(action.nodes.map((node) => node.id))

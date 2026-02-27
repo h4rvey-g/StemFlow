@@ -10,6 +10,7 @@ import { StreamingText } from '@/components/ui/StreamingText'
 import { useTranslation } from 'react-i18next'
 
 type TranslationLanguage = 'zh-CN' | 'en'
+type PopoverAction = AiAction
 
 type Props = {
   nodeId: string
@@ -19,18 +20,19 @@ type Props = {
   anchorEl: HTMLElement
 }
 
-const ACTIONS: AiAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation']
+const ACTIONS: PopoverAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation', 'chat']
 
-const ACTION_TRANSLATION_KEYS: Record<AiAction, string> = {
+const ACTION_TRANSLATION_KEYS: Record<PopoverAction, string> = {
   summarize: 'summarize',
   'suggest-mechanism': 'suggestMechanism',
   critique: 'critique',
   expand: 'expand',
   questions: 'generateQuestions',
   translation: 'translation',
+  chat: 'chat',
 }
 
-const getActionTranslationKey = (action: AiAction, nodeType: NodeType) =>
+const getActionTranslationKey = (action: PopoverAction, nodeType: NodeType) =>
   action === 'suggest-mechanism' && nodeType === 'MECHANISM'
     ? 'suggestValidation'
     : ACTION_TRANSLATION_KEYS[action]
@@ -42,7 +44,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
 
-  const [activeAction, setActiveAction] = useState<AiAction | null>(null)
+  const [activeAction, setActiveAction] = useState<PopoverAction | null>(null)
   const [translationLanguage, setTranslationLanguage] = useState<TranslationLanguage>('zh-CN')
   const [showTranslationLanguagePicker, setShowTranslationLanguagePicker] = useState(false)
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
@@ -56,7 +58,12 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
 
   if (!isOpen || !rect) return null
 
-  const runAction = async (action: AiAction) => {
+  const runAction = async (action: PopoverAction) => {
+    if (action === 'chat') {
+      window.dispatchEvent(new CustomEvent('stemflow:open-chat', { detail: { nodeId } }))
+      return
+    }
+
     if (action === 'translation') {
       setActiveAction(action)
       setShowTranslationLanguagePicker(true)
@@ -114,7 +121,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
 
   const showSuggest = nodeType === 'OBSERVATION' || nodeType === 'MECHANISM'
 
-  const getActionLabel = (action: AiAction) => t(`popover.actions.${getActionTranslationKey(action, nodeType)}`)
+  const getActionLabel = (action: PopoverAction) => t(`popover.actions.${getActionTranslationKey(action, nodeType)}`)
 
   return createPortal(
     <div

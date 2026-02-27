@@ -26,7 +26,13 @@ interface MarkdownParagraphBlock {
   text: string
 }
 
-type MarkdownBlock = MarkdownParagraphBlock | MarkdownListBlock
+interface MarkdownHeadingBlock {
+  kind: 'heading'
+  level: 1 | 2 | 3 | 4 | 5 | 6
+  text: string
+}
+
+type MarkdownBlock = MarkdownParagraphBlock | MarkdownListBlock | MarkdownHeadingBlock
 
 const findClosing = (input: string, marker: '*' | '**', start: number): number => {
   const markerLength = marker.length
@@ -115,6 +121,20 @@ const tokenizeEmphasis = (input: string): EmphasisToken[] => {
     if (token.kind === 'citation') return true
     return token.value.length > 0
   })
+}
+
+const parseHeadingMarker = (
+  line: string
+): { level: 1 | 2 | 3 | 4 | 5 | 6; content: string } | null => {
+  const match = line.match(/^(#{1,6})\s+(.*)$/)
+  if (match) {
+    const level = match[1].length as 1 | 2 | 3 | 4 | 5 | 6
+    return {
+      level,
+      content: match[2].trimEnd(),
+    }
+  }
+  return null
 }
 
 const countIndent = (line: string): number => {
@@ -233,6 +253,19 @@ const parseMarkdownBlocks = (input: string): MarkdownBlock[] => {
 
   while (cursor < lines.length) {
     const line = lines[cursor]
+    const headingMarker = parseHeadingMarker(line)
+
+    if (headingMarker) {
+      flushParagraph()
+      blocks.push({
+        kind: 'heading',
+        level: headingMarker.level,
+        text: headingMarker.content,
+      })
+      cursor += 1
+      continue
+    }
+
     const marker = parseListMarker(line)
 
     if (marker) {
@@ -331,6 +364,24 @@ const renderListBlock = (
   )
 }
 
+const renderHeadingBlock = (
+  block: MarkdownHeadingBlock,
+  citations: Citation[] | undefined,
+  keyPrefix: string
+): ReactNode => {
+  const HeadingTag = (`h${block.level}` as const) as keyof JSX.IntrinsicElements
+  const headingClassName = 'font-semibold'
+
+  return React.createElement(
+    HeadingTag,
+    {
+      key: `${keyPrefix}-heading`,
+      className: headingClassName,
+    },
+    renderInline(block.text, citations, keyPrefix)
+  )
+}
+
 export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): ReactNode[] => {
   const blocks = parseMarkdownBlocks(input)
 
@@ -342,6 +393,10 @@ export const renderMarkdownEmphasis = (input: string, citations?: Citation[]): R
     const keyPrefix = `block-${blockIndex}`
     if (block.kind === 'list') {
       return renderListBlock(block, citations, keyPrefix)
+    }
+
+    if (block.kind === 'heading') {
+      return renderHeadingBlock(block, citations, keyPrefix)
     }
 
     return (

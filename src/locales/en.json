@@ -179,7 +179,8 @@
       "critique": "Critique",
       "expand": "Expand",
       "generateQuestions": "Generate Questions",
-      "translation": "Translation"
+      "translation": "Translation",
+      "chat": "Chat"
     },
     "translation": {
       "languageLabel": "Target language",
