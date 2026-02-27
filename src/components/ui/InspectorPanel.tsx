@@ -9,6 +9,8 @@ interface InspectorPanelProps {
   onClose: () => void
   children?: ReactNode
   nodeText?: string
+  nodeType?: 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'
+  summaryTitle?: string
   translatedTitle?: string
   translatedTextContent?: string
   translatedLanguage?: 'zh-CN' | 'en'
@@ -22,6 +24,8 @@ export const InspectorPanel = ({
   onClose,
   children,
   nodeText,
+  nodeType,
+  summaryTitle,
   translatedTitle,
   translatedTextContent,
   translatedLanguage,
@@ -92,12 +96,12 @@ export const InspectorPanel = ({
     >
       <div
         data-testid="inspector-panel"
-        className="flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="flex h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-800">
-            {t('inspector.title')}
+            {summaryTitle || t('inspector.title')}
           </h2>
           <button
             onClick={onClose}
@@ -109,47 +113,61 @@ export const InspectorPanel = ({
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           {onNodeTextChange || (nodeText && nodeText.trim().length > 0) ? (
-            <div>
+            <div className="group">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {isEditingText ? t('inspector.editor') : t('inspector.longText')}
                 </h3>
-                {onNodeTextChange ? (
-                  isEditingText ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
-                        onClick={() => {
-                          setDraftNodeText(nodeText ?? '')
-                          setIsEditingText(false)
-                        }}
-                      >
-                        {t('common.cancel')}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md bg-indigo-500 px-2 py-1 text-xs font-semibold text-white transition-colors hover:bg-indigo-600"
-                        onClick={() => {
-                          onNodeTextChange(draftNodeText)
-                          setIsEditingText(false)
-                        }}
-                      >
-                        {t('common.save')}
-                      </button>
-                    </div>
-                  ) : (
+                {onNodeTextChange && !isEditingText ? (
+                  <button
+                    type="button"
+                    className="rounded-md p-1.5 text-slate-400 opacity-0 transition-all hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+                    onClick={() => {
+                      setDraftNodeText(nodeText ?? '')
+                      setIsEditingText(true)
+                    }}
+                    aria-label={t('common.edit')}
+                    title={t('common.edit')}
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+                {isEditingText ? (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
                       onClick={() => {
                         setDraftNodeText(nodeText ?? '')
-                        setIsEditingText(true)
+                        setIsEditingText(false)
                       }}
                     >
-                      {t('common.edit')}
+                      {t('common.cancel')}
                     </button>
-                  )
+                    <button
+                      type="button"
+                      className="rounded-md bg-indigo-500 px-2 py-1 text-xs font-semibold text-white transition-colors hover:bg-indigo-600"
+                      onClick={() => {
+                        onNodeTextChange?.(draftNodeText)
+                        setIsEditingText(false)
+                      }}
+                    >
+                      {t('common.save')}
+                    </button>
+                  </div>
                 ) : null}
               </div>
 
@@ -163,13 +181,13 @@ export const InspectorPanel = ({
                 />
               ) : (
                 <>
-                  <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                  <div className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700" style={{ maxWidth: '65ch' }}>
                     {nodeText && nodeText.trim().length > 0
                       ? renderMarkdownEmphasis(nodeText, citations)
                       : nodePlaceholder ?? ''}
                   </div>
                   {hasTranslatedContent ? (
-                    <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                    <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700" style={{ maxWidth: '65ch' }}>
                       {normalizedTranslatedTitle.length > 0 ? (
                         <div className="mb-1 text-sm font-semibold text-slate-800">
                           {normalizedTranslatedTitle}

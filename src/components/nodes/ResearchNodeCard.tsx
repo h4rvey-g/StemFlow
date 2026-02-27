@@ -51,7 +51,7 @@ function InspectIcon() {
     <svg
       viewBox="0 0 20 20"
       aria-hidden
-      className="h-3.5 w-3.5"
+      className="h-3.5 w-3.5 rotate-90"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -101,35 +101,6 @@ function StarIcon({ filled }: { filled: boolean }) {
   )
 }
 
-const ReferencesSection = ({ citations }: { citations: Citation[] }) => {
-  const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <div className="nodrag nopan mt-2 border-t border-slate-200 pt-2">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-500 transition-colors"
-        onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
-      >
-        <span className="transition-transform" style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-        {t('nodes.card.references', { count: citations.length })}
-      </button>
-      {expanded ? (
-        <div className="mt-1">
-          {citations.map((c) => (
-            <div key={c.index} className="text-[11px] leading-4 text-slate-500 mb-0.5">
-              <span className="font-medium text-slate-600">[{c.index}]</span>{' '}
-              <a href={c.url} target="_blank" rel="noopener noreferrer" className="nodrag text-blue-600 hover:underline">
-                {c.title}
-              </a>
-              {c.publishedDate ? <span className="text-slate-400 ml-1">({c.publishedDate})</span> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 export function ResearchNodeCard({
   id,
@@ -509,7 +480,7 @@ export function ResearchNodeCard({
         </div>
         <button
           type="button"
-          className="nodrag mt-0.5 inline-flex w-full items-center justify-end gap-1.5 rounded-md px-1 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-slate-100"
+          className="nodrag mt-0.5 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-1 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50 dark:hover:text-slate-100"
           onClick={() => {
             window.dispatchEvent(new CustomEvent('stemflow:read-more-intent', {
               detail: { nodeId: id }
@@ -520,7 +491,6 @@ export function ResearchNodeCard({
           <span>{t('nodes.card.readMore')}</span>
         </button>
       </div>
-      {citations.length > 0 ? <ReferencesSection citations={citations} /> : null}
 
       {generationStatus === 'pending' ? (
         <div className="mt-3 flex items-center justify-center py-2" data-testid="node-generation-spinner">

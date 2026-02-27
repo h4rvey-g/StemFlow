@@ -1205,6 +1205,8 @@ function Canvas() {
           isOpen={isInspectorOpen} 
           onClose={() => setInspectorNodeId(null)}
           nodeText={inspectorNode?.data.text_content}
+          nodeType={inspectorNode?.type as 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'}
+          summaryTitle={inspectorNode?.data.summary_title}
           translatedTitle={inspectorNode?.data.translated_title}
           translatedTextContent={inspectorNode?.data.translated_text_content}
           translatedLanguage={inspectorNode?.data.translated_language}
