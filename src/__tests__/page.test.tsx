@@ -1,5 +1,5 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import Page from '../app/page'
 import type { StoreState } from '@/stores/useStore'
@@ -25,7 +25,12 @@ global.ResizeObserver = ResizeObserver
 const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const fallbackPattern = (text: string, key: string) => new RegExp(`(${escapeForRegex(text)}|${escapeForRegex(key)})`, 'i')
 
-const projectStoreState = {
+const projectStoreState: {
+  projects: unknown[]
+  activeProjectId: string | null
+  isLoaded: boolean
+  loadProjects: ReturnType<typeof vi.fn>
+} = {
   projects: [],
   activeProjectId: null,
   isLoaded: true,
@@ -138,6 +143,39 @@ describe('Canvas Page', () => {
     fireEvent.click(screen.getByTestId('topbar-theme-toggle'))
 
     expect(setThemeMock).toHaveBeenCalledWith('dark')
+  })
+
+  it('does not show onboarding while switching projects before new project hydration completes', async () => {
+    const state = useStore() as StoreState
+
+    state.nodes = []
+    state.isLoading = false
+    projectStoreState.activeProjectId = 'empty-project'
+
+    state.loadFromDb = vi.fn(async () => {})
+
+    const { rerender } = render(<Page />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-popup')).toBeInTheDocument()
+    })
+
+    const resolveNextLoadRef: { current: (() => void) | null } = { current: null }
+    const nextLoadPromise = new Promise<void>((resolve) => {
+      resolveNextLoadRef.current = resolve
+    })
+
+    state.loadFromDb = vi.fn(() => nextLoadPromise)
+    projectStoreState.activeProjectId = 'populated-project'
+    rerender(<Page />)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('onboarding-popup')).not.toBeInTheDocument()
+    })
+
+    if (resolveNextLoadRef.current) {
+      resolveNextLoadRef.current()
+    }
   })
 
   it('shows grouped ghost actions and triggers accept all/dismiss all', () => {

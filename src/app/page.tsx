@@ -241,6 +241,7 @@ function Canvas() {
   const persistedSelectionRef = useRef<string[]>([])
   const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
   
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const isProjectLoaded = useProjectStore((s) => s.isLoaded)
@@ -264,6 +265,8 @@ function Canvas() {
   const isCanvasLoading = useStore((s) => s.isLoading)
 
   const isCanvasEmpty = nodes.length === 0
+  const isCanvasHydratedForActiveProject =
+    typeof activeProjectId === 'string' && hydratedProjectId === activeProjectId
 
   const onboardingShownKey = useMemo(
     () => (activeProjectId ? `${ONBOARDING_SHOWN_KEY_PREFIX}:${activeProjectId}` : null),
@@ -331,9 +334,9 @@ function Canvas() {
   )
 
   const handleOpenOnboarding = useCallback(() => {
-    if (!isCanvasEmpty) return
+    if (!isCanvasHydratedForActiveProject || !isCanvasEmpty) return
     setShowOnboarding(true)
-  }, [isCanvasEmpty])
+  }, [isCanvasEmpty, isCanvasHydratedForActiveProject])
 
   useEffect(() => {
     useProjectStore.getState().loadProjects()
@@ -371,11 +374,39 @@ function Canvas() {
 
   useEffect(() => {
     if (!isProjectLoaded || !activeProjectId) return
-    loadFromDb()
+
+    let cancelled = false
+
+    const loadProjectCanvas = async () => {
+      setHydratedProjectId(null)
+      try {
+        await loadFromDb()
+      } finally {
+        if (!cancelled) {
+          setHydratedProjectId(activeProjectId)
+        }
+      }
+    }
+
+    void loadProjectCanvas()
+
+    return () => {
+      cancelled = true
+    }
   }, [isProjectLoaded, activeProjectId, loadFromDb])
 
   useEffect(() => {
-    if (!isProjectLoaded || isCanvasLoading || !onboardingShownKey) return
+    if (!activeProjectId) {
+      setHydratedProjectId(null)
+      setShowOnboarding(false)
+      return
+    }
+
+    setShowOnboarding(false)
+  }, [activeProjectId])
+
+  useEffect(() => {
+    if (!isProjectLoaded || isCanvasLoading || !isCanvasHydratedForActiveProject || !onboardingShownKey) return
 
     if (!isCanvasEmpty) {
       setShowOnboarding(false)
@@ -387,6 +418,7 @@ function Canvas() {
   }, [
     isProjectLoaded,
     isCanvasLoading,
+    isCanvasHydratedForActiveProject,
     onboardingShownKey,
     isCanvasEmpty,
     readOnboardingShown,
@@ -1076,7 +1108,7 @@ function Canvas() {
               {aiError}
             </div>
           )}
-          {isCanvasEmpty && !showOnboarding ? (
+          {isCanvasHydratedForActiveProject && isCanvasEmpty && !showOnboarding ? (
             <EmptyCanvasOverlay onGetStarted={handleOpenOnboarding} />
           ) : null}
           {dragDropPreview && previewTargetNode && (
@@ -1196,7 +1228,7 @@ function Canvas() {
             ) : null}
           </ReactFlow>
           <OnboardingPopup
-            isOpen={showOnboarding}
+            isOpen={showOnboarding && isCanvasHydratedForActiveProject && isCanvasEmpty}
             onClose={handleOnboardingClose}
             onCreateNode={handleOnboardingCreateNode}
           />
