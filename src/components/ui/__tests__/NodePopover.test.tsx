@@ -45,39 +45,7 @@ describe('NodePopover', () => {
     mockCancel.mockReset()
   })
 
-  it('shows Suggest Mechanism for Observation and Suggest Validation for Mechanism', async () => {
-    const anchor = document.createElement('button')
-    document.body.appendChild(anchor)
-    ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
-
-    const onClose = vi.fn()
-
-    const { rerender } = render(
-      <NodePopover
-        nodeId="n1"
-        nodeType="OBSERVATION"
-        isOpen={true}
-        onClose={onClose}
-        anchorEl={anchor}
-      />
-    )
-
-    expect(await screen.findByText('Suggest Mechanism')).toBeInTheDocument()
-
-    rerender(
-      <NodePopover
-        nodeId="n1"
-        nodeType="MECHANISM"
-        isOpen={true}
-        onClose={onClose}
-        anchorEl={anchor}
-      />
-    )
-
-    expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
-  })
-
-  it('Summarize action still executes with ghost-preview options', async () => {
+  it('renders only Translation and Chat actions', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
     ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
@@ -92,43 +60,44 @@ describe('NodePopover', () => {
       />
     )
 
-    fireEvent.click(await screen.findByText('Summarize'))
-    await waitFor(() => {
-      expect(mockExecuteAction).toHaveBeenCalledTimes(1)
-      expect(mockExecuteAction).toHaveBeenCalledWith('summarize', undefined, { createNodeOnComplete: false })
-    })
+    expect(await screen.findByText('Translation')).toBeInTheDocument()
+    expect(screen.getByText('Chat')).toBeInTheDocument()
+    expect(screen.queryByText('Summarize')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suggest Mechanism')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suggest Validation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Critique')).not.toBeInTheDocument()
+    expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+    expect(screen.queryByText('Generate Questions')).not.toBeInTheDocument()
   })
 
-  it('suggest action labels remain observation->mechanism and mechanism->validation', async () => {
+  it('chat action dispatches stemflow:open-chat event', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
     ;(anchor as any).getBoundingClientRect = () => ({ top: 10, left: 10, width: 10, height: 10 })
 
-    const onClose = vi.fn()
+    const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent')
 
-    const { rerender } = render(
+    render(
       <NodePopover
         nodeId="n1"
         nodeType="OBSERVATION"
         isOpen={true}
-        onClose={onClose}
+        onClose={() => {}}
         anchorEl={anchor}
       />
     )
 
-    expect(await screen.findByText('Suggest Mechanism')).toBeInTheDocument()
+    fireEvent.click(await screen.findByText('Chat'))
+    await waitFor(() => {
+      expect(dispatchEventSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'stemflow:open-chat',
+          detail: { nodeId: 'n1' },
+        })
+      )
+    })
 
-    rerender(
-      <NodePopover
-        nodeId="n1"
-        nodeType="MECHANISM"
-        isOpen={true}
-        onClose={onClose}
-        anchorEl={anchor}
-      />
-    )
-
-    expect(await screen.findByText('Suggest Validation')).toBeInTheDocument()
+    dispatchEventSpy.mockRestore()
   })
 
   it('translation action opens language dropdown and runs translation', async () => {

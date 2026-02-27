@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MessageCircle, Globe } from 'lucide-react'
 
-import type { AiAction } from '@/lib/ai/types'
 import { useAi } from '@/hooks/useAi'
 import { StreamingText } from '@/components/ui/StreamingText'
 import { useStore } from '@/stores/useStore'
@@ -12,28 +12,27 @@ import type { OMVNode, OMVEdge, NodeType } from '@/types/nodes'
 
 type TranslationLanguage = 'zh-CN' | 'en'
 
-type InspectorAction = AiAction
+type InspectorAction = 'translation' | 'chat'
 
 interface InspectorAiActionsProps {
   nodeId: string
 }
 
-const ACTIONS: InspectorAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation', 'chat']
+const ACTIONS: InspectorAction[] = ['translation', 'chat']
 
 const ACTION_TRANSLATION_KEYS: Record<InspectorAction, string> = {
-  summarize: 'summarize',
-  'suggest-mechanism': 'suggestMechanism',
-  critique: 'critique',
-  expand: 'expand',
-  questions: 'generateQuestions',
   translation: 'translation',
   chat: 'chat',
 }
 
-const getActionTranslationKey = (action: InspectorAction, nodeType: NodeType) =>
-  action === 'suggest-mechanism' && nodeType === 'MECHANISM'
-    ? 'suggestValidation'
-    : ACTION_TRANSLATION_KEYS[action]
+const getActionTranslationKey = (action: InspectorAction) => ACTION_TRANSLATION_KEYS[action]
+
+const ActionIcon = ({ action }: { action: InspectorAction }) => {
+  if (action === 'chat') {
+    return <MessageCircle className="h-4 w-4 text-slate-500" aria-hidden="true" />
+  }
+  return <Globe className="h-4 w-4 text-slate-500" aria-hidden="true" />
+}
 
 export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   const { t } = useTranslation()
@@ -44,10 +43,6 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
   
   const addNode = useStore((s) => s.addNode)
   const addEdge = useStore((s) => s.addEdge)
-  const nodes = useStore((s) => s.nodes)
-
-  const sourceNode = nodes.find((n) => n.id === nodeId)
-  const sourceType = sourceNode?.type ?? 'OBSERVATION'
 
   const runAction = async (action: InspectorAction) => {
     if (action === 'chat') {
@@ -79,14 +74,7 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
     const text = streamingText.trim()
     if (!text) return
 
-    const nextType: Exclude<NodeType, 'GHOST'> =
-      activeAction === 'suggest-mechanism'
-        ? source.type === 'MECHANISM'
-          ? 'VALIDATION'
-          : source.type === 'OBSERVATION'
-            ? 'MECHANISM'
-            : source.type
-        : source.type
+    const nextType: Exclude<NodeType, 'GHOST'> = source.type
 
     const newNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const position = createRightwardPosition(source.position)
@@ -119,11 +107,12 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
           <button
             key={action}
             type="button"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
             onClick={() => runAction(action)}
             disabled={isLoading}
           >
-            {t(`popover.actions.${getActionTranslationKey(action, sourceType)}`, action)}
+            <ActionIcon action={action} />
+            {t(`popover.actions.${getActionTranslationKey(action)}`)}
           </button>
         ))}
       </div>
@@ -191,7 +180,7 @@ export const InspectorAiActions = ({ nodeId }: InspectorAiActionsProps) => {
       {activeAction && (
         <div className="text-xs text-slate-500">
           {t('inspector.ai.active', { 
-            action: t(`popover.actions.${getActionTranslationKey(activeAction, sourceType)}`) 
+            action: t(`popover.actions.${getActionTranslationKey(activeAction)}`) 
           })}
         </div>
       )}

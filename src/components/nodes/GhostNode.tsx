@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Handle, Position, NodeProps } from 'reactflow'
+import { Sparkles, X } from 'lucide-react'
 
 import { useStore } from '@/stores/useStore'
 import { useGenerate } from '@/hooks/useGenerate'
@@ -51,14 +52,10 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
             {typeLabel}
           </div>
           <div className="inline-flex items-center gap-1 rounded-full border border-slate-300/75 bg-white/65 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-500/70 dark:bg-slate-800/65 dark:text-slate-300">
-            <svg
-              viewBox="0 0 20 20"
+            <Sparkles
               className="h-3 w-3 text-indigo-500/90"
-              fill="currentColor"
               aria-hidden
-            >
-              <path d="M10 1.5l1.9 4.6 4.6 1.9-4.6 1.9-1.9 4.6-1.9-4.6-4.6-1.9 4.6-1.9L10 1.5z" />
-            </svg>
+            />
             {t('nodes.ghost.aiDraft', { defaultValue: 'AI Draft' })}
           </div>
         </div>
@@ -82,9 +79,7 @@ export const GhostNode = memo(({ data, isConnectable }: NodeProps<GhostNodeData>
             className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300/80 bg-white/60 text-slate-500 opacity-0 transition-all duration-200 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/80 dark:border-slate-500/80 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:border-rose-400 dark:hover:bg-rose-400/15 dark:hover:text-rose-300"
             aria-label={t('nodes.ghost.dismissSuggestion')}
           >
-            <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
-            </svg>
+            <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           </button>
         </div>
       </div>

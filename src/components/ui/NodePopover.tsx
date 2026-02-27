@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { AiAction } from '@/lib/ai/types'
 import { createRightwardPosition } from '@/lib/node-layout'
 import { useAi } from '@/hooks/useAi'
 import { useStore } from '@/stores/useStore'
 import type { NodeType, OMVEdge, OMVNode } from '@/types/nodes'
 import { StreamingText } from '@/components/ui/StreamingText'
 import { useTranslation } from 'react-i18next'
+import { MessageCircle, Globe } from 'lucide-react'
 
 type TranslationLanguage = 'zh-CN' | 'en'
-type PopoverAction = AiAction
+type PopoverAction = 'translation' | 'chat'
 
 type Props = {
   nodeId: string
@@ -20,22 +20,21 @@ type Props = {
   anchorEl: HTMLElement
 }
 
-const ACTIONS: PopoverAction[] = ['summarize', 'suggest-mechanism', 'critique', 'expand', 'questions', 'translation', 'chat']
+const ACTIONS: PopoverAction[] = ['translation', 'chat']
 
 const ACTION_TRANSLATION_KEYS: Record<PopoverAction, string> = {
-  summarize: 'summarize',
-  'suggest-mechanism': 'suggestMechanism',
-  critique: 'critique',
-  expand: 'expand',
-  questions: 'generateQuestions',
   translation: 'translation',
   chat: 'chat',
 }
 
-const getActionTranslationKey = (action: PopoverAction, nodeType: NodeType) =>
-  action === 'suggest-mechanism' && nodeType === 'MECHANISM'
-    ? 'suggestValidation'
-    : ACTION_TRANSLATION_KEYS[action]
+const getActionTranslationKey = (action: PopoverAction) => ACTION_TRANSLATION_KEYS[action]
+
+const ActionIcon = ({ action }: { action: PopoverAction }) => {
+  if (action === 'chat') {
+    return <MessageCircle className="h-4 w-4 text-slate-500" aria-hidden="true" />
+  }
+  return <Globe className="h-4 w-4 text-slate-500" aria-hidden="true" />
+}
 
 export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Props) {
   const { isLoading, streamingText, error, executeAction, translateNodeContent, cancel } = useAi(nodeId)
@@ -88,15 +87,7 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     const text = streamingText.trim()
     if (!text) return
 
-    const sourceType: Exclude<NodeType, 'GHOST'> = source.type === 'GHOST' ? nodeType : source.type
-    const nextType: Exclude<NodeType, 'GHOST'> =
-      activeAction === 'suggest-mechanism'
-        ? sourceType === 'MECHANISM'
-          ? 'VALIDATION'
-          : sourceType === 'OBSERVATION'
-            ? 'MECHANISM'
-            : sourceType
-        : sourceType
+    const nextType: Exclude<NodeType, 'GHOST'> = source.type === 'GHOST' ? nodeType : source.type
     const newNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const position = createRightwardPosition(source.position)
 
@@ -119,20 +110,19 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
     onClose()
   }
 
-  const showSuggest = nodeType === 'OBSERVATION' || nodeType === 'MECHANISM'
-
-  const getActionLabel = (action: PopoverAction) => t(`popover.actions.${getActionTranslationKey(action, nodeType)}`)
+  const getActionLabel = (action: PopoverAction) => t(`popover.actions.${getActionTranslationKey(action)}`)
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[1000]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
+    <div className="fixed inset-0 z-[1000]">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label={t('common.close')}
+        onMouseDown={onClose}
+      />
       <div
         data-testid="node-popover"
-        className="absolute w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl"
+        className="absolute z-[1001] w-[320px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-xl"
         style={{
           left: Math.min(rect.left, window.innerWidth - 340),
           top: Math.min(rect.top + rect.height + 8, window.innerHeight - 360),
@@ -151,17 +141,18 @@ export function NodePopover({ nodeId, nodeType, isOpen, onClose, anchorEl }: Pro
         </div>
 
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {ACTIONS.filter((a) => (a === 'suggest-mechanism' ? showSuggest : true)).map((action) => {
+          {ACTIONS.map((action) => {
             const label = getActionLabel(action)
 
             return (
               <button
                 key={action}
                 type="button"
-                className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-left text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-left text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
                 onClick={() => runAction(action)}
                 disabled={isLoading}
               >
+                <ActionIcon action={action} />
                 {label}
               </button>
             )

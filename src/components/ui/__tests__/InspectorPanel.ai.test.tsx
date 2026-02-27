@@ -68,10 +68,14 @@ describe('InspectorAiActions', () => {
   it('renders action buttons including suggest', () => {
     render(<InspectorAiActions nodeId="node-1" />)
     
-    expect(screen.getByText('Summarize')).toBeInTheDocument()
-    expect(screen.getByText('Suggest Mechanism')).toBeInTheDocument()
-    expect(screen.getByText('Critique')).toBeInTheDocument()
     expect(screen.getByText('Translation')).toBeInTheDocument()
+    expect(screen.getByText('Chat')).toBeInTheDocument()
+    expect(screen.queryByText('Summarize')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suggest Mechanism')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suggest Validation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Critique')).not.toBeInTheDocument()
+    expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+    expect(screen.queryByText('Generate Questions')).not.toBeInTheDocument()
   })
 
   it('translation opens language picker and triggers translation call', async () => {
@@ -83,16 +87,6 @@ describe('InspectorAiActions', () => {
     fireEvent.click(screen.getByText('Translate'))
     await waitFor(() => {
       expect(mockTranslateNodeContent).toHaveBeenCalledWith('zh-CN')
-    })
-  })
-
-  it('calls executeAction with createNodeOnComplete: false', async () => {
-    render(<InspectorAiActions nodeId="node-1" />)
-    
-    fireEvent.click(screen.getByText('Summarize'))
-    
-    await waitFor(() => {
-      expect(mockExecuteAction).toHaveBeenCalledWith('summarize', undefined, { createNodeOnComplete: false })
     })
   })
 
@@ -132,34 +126,6 @@ describe('InspectorAiActions', () => {
       expect.objectContaining({
         type: 'OBSERVATION',
         data: { text_content: 'Summary' },
-      })
-    )
-  })
-
-  it('shows Suggest Validation for mechanism node', () => {
-    mockStoreState.nodes = [
-      { id: 'node-1', type: 'MECHANISM', position: { x: 0, y: 0 }, data: { text_content: 'test' } }
-    ]
-    
-    render(<InspectorAiActions nodeId="node-1" />)
-    
-    expect(screen.getByText('Suggest Validation')).toBeInTheDocument()
-  })
-
-  it('apply creates MECHANISM from OBSERVATION for suggest action', () => {
-    mockAiState.streamingText = 'Mechanism text'
-    
-    const { rerender } = render(<InspectorAiActions nodeId="node-1" />)
-    
-    fireEvent.click(screen.getByText('Suggest Mechanism'))
-    
-    rerender(<InspectorAiActions nodeId="node-1" />)
-    fireEvent.click(screen.getByText('Apply'))
-    
-    expect(mockAddNode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'MECHANISM',
-        data: { text_content: 'Mechanism text' },
       })
     )
   })

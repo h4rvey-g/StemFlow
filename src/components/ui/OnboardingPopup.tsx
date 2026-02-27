@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { X, Lightbulb, Eye } from 'lucide-react'
 
 interface OnboardingPopupProps {
   isOpen: boolean;
@@ -134,10 +135,7 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
             aria-label={t('onboarding.popup.closeAriaLabel')}
             data-testid="onboarding-close-btn"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -151,11 +149,7 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
                 data-testid="onboarding-card-hypothesis"
               >
                 <div className="p-4 bg-blue-100 dark:bg-blue-900/50 rounded-full mb-4 group-hover:scale-110 transition-transform">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-blue-600 dark:text-blue-400">
-                    <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-1 1.5-2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-                    <path d="M9 18h6" />
-                    <path d="M10 22h4" />
-                  </svg>
+                  <Lightbulb className="w-8 h-8 text-blue-600 dark:text-blue-400" />
                 </div>
                 <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
                   {t('onboarding.popup.hypothesis.title')}
@@ -171,10 +165,7 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
                 data-testid="onboarding-card-observation"
               >
                 <div className="p-4 bg-emerald-100 dark:bg-emerald-900/50 rounded-full mb-4 group-hover:scale-110 transition-transform">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-emerald-600 dark:text-emerald-400">
-                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
+                  <Eye className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
                   {t('onboarding.popup.observation.title')}

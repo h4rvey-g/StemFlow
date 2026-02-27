@@ -37,6 +37,7 @@ import { EmptyCanvasOverlay } from '@/components/ui/EmptyCanvasOverlay'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
 import { buildManualGroupNodes } from '@/lib/graph'
 import type { NodeData, NodeFileAttachment } from '@/types/nodes'
+import { AlignLeft, Globe, Sun, Moon } from 'lucide-react'
 
 const DEBUG_GHOSTS = false
 const AUTO_CONNECT_PROXIMITY_PX = 150
@@ -161,65 +162,13 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
   },
 }
 
-const AlignIcon = () => (
-  <svg
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h14" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h10" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 18h14" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 4v16" />
-  </svg>
-)
+const AlignIcon = () => <AlignLeft className="h-4 w-4" strokeWidth={1.5} />
 
-const EarthIcon = () => (
-  <svg
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 0c2.485 2.54 3.75 5.54 3.75 9S14.485 18.46 12 21m0-18C9.515 5.54 8.25 8.54 8.25 12S9.515 18.46 12 21m-8.62-6h17.24M3.38 9h17.24"
-    />
-  </svg>
-)
+const EarthIcon = () => <Globe className="h-4 w-4" strokeWidth={1.5} />
 
-const SunIcon = () => (
-  <svg
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden
-  >
-    <circle cx="12" cy="12" r="4" strokeWidth={2} />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77" />
-  </svg>
-)
+const SunIcon = () => <Sun className="h-4 w-4" strokeWidth={1.5} />
 
-const MoonIcon = () => (
-  <svg
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden
-  >
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
-  </svg>
-)
+const MoonIcon = () => <Moon className="h-4 w-4" strokeWidth={1.5} />
 
 function Canvas() {
   const { t, i18n } = useTranslation()

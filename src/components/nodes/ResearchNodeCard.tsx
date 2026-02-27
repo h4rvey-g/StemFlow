@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { NodeProps } from 'reactflow'
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow'
+import { Star, ChevronRight } from 'lucide-react'
 
 import { useGenerate } from '@/hooks/useGenerate'
 import { describeImageWithVision } from '@/lib/ai-service'
@@ -47,20 +48,7 @@ const COLLAPSED_TEXT_STYLE: React.CSSProperties = {
 }
 
 function InspectIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      aria-hidden
-      className="h-3.5 w-3.5 rotate-90"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M7 5l6 5-6 5" />
-    </svg>
-  )
+  return <ChevronRight className="h-3.5 w-3.5 rotate-90" />
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -91,13 +79,10 @@ const normalizeAttachments = (nodeData?: NodeData): NodeFileAttachment[] => {
 
 function StarIcon({ filled }: { filled: boolean }) {
   return (
-    <svg viewBox="0 0 20 20" aria-hidden className="h-3.5 w-3.5">
-      <path
-        d="M10 1.6l2.47 5 5.52.8-4 3.9.94 5.5L10 14.2l-4.93 2.6.94-5.5-4-3.9 5.52-.8L10 1.6z"
-        className={filled ? 'fill-amber-400 stroke-amber-500' : 'fill-transparent stroke-slate-400'}
-        strokeWidth="1.2"
-      />
-    </svg>
+    <Star
+      className={`h-3.5 w-3.5 ${filled ? 'fill-amber-400 stroke-amber-500' : 'fill-transparent stroke-slate-400'}`}
+      strokeWidth={1.2}
+    />
   )
 }
 
