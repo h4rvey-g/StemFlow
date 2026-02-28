@@ -28,10 +28,9 @@ import { MechanismNode } from '@/components/nodes/MechanismNode'
 import { ValidationNode } from '@/components/nodes/ValidationNode'
 import { GhostNode } from '@/components/nodes/GhostNode'
 import { ManualGroupNode } from '@/components/nodes/ManualGroupNode'
-import { InspectorPanel } from '@/components/ui/InspectorPanel'
+import { InspectorWithChatContainer } from '@/components/ui/InspectorWithChatContainer'
 import { InspectorAiActions } from '@/components/ui/InspectorAiActions'
 import { InspectorAttachments } from '@/components/ui/InspectorAttachments'
-import { NodeChatPanel } from '@/components/ui/NodeChatPanel'
 import { OnboardingPopup } from '@/components/ui/OnboardingPopup'
 import { EmptyCanvasOverlay } from '@/components/ui/EmptyCanvasOverlay'
 import { getSuggestedTargetTypes, isConnectionSuggested } from '@/lib/connection-rules'
@@ -1212,9 +1211,11 @@ function Canvas() {
             onCreateNode={handleOnboardingCreateNode}
           />
         </div>
-        <InspectorPanel 
-          isOpen={isInspectorOpen} 
-          onClose={() => setInspectorNodeId(null)}
+        <InspectorWithChatContainer
+          inspectorNodeId={inspectorNodeId}
+          chatNodeId={chatNodeId}
+          onCloseInspector={() => setInspectorNodeId(null)}
+          onCloseChat={() => setChatNodeId(null)}
           nodeText={inspectorNode?.data.text_content}
           nodeType={inspectorNode?.type as 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'}
           summaryTitle={inspectorNode?.data.summary_title}
@@ -1233,8 +1234,7 @@ function Canvas() {
               ) : null}
             </>
           )}
-        </InspectorPanel>
-        <NodeChatPanel nodeId={chatNodeId} onClose={() => setChatNodeId(null)} />
+        </InspectorWithChatContainer>
       </div>
     </div>
   )
