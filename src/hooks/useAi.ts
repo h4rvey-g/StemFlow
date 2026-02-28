@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef } from 'react'
 
 import { loadApiKeys } from '@/lib/api-keys'
 import { createRightwardPosition } from '@/lib/node-layout'
-import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
 import type { AiAction, AiError, AiMessage, AiProvider } from '@/lib/ai/types'
 import { AiError as AiErrorClass } from '@/lib/ai/types'
 import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
@@ -82,11 +81,6 @@ const toFastModel = (provider: AiProvider, keys: Awaited<ReturnType<typeof loadA
   return keys.geminiFastModel ?? keys.geminiModel ?? DEFAULT_GEMINI_MODEL
 }
 
-const getStreamParser = (provider: AiProvider) => {
-  if (provider === 'gemini') return parseGeminiStream
-  if (provider === 'anthropic') return parseAnthropicStream
-  return parseOpenAIStream
-}
 
 const requestAiText = async (
   params: {
@@ -129,11 +123,15 @@ const requestAiText = async (
       throw new AiErrorClass('AI stream unavailable', provider)
     }
 
-    const parser = getStreamParser(provider)
-    for await (const chunk of parser(reader)) {
-      if (chunk.done) break
-      aggregated += chunk.text
-      onChunk(chunk.text)
+    const decoder = new TextDecoder()
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (value) {
+        const text = decoder.decode(value, { stream: true })
+        aggregated += text
+        onChunk(text)
+      }
     }
   } else {
     const json = (await response.json()) as { text?: string }

@@ -9,7 +9,7 @@ import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
 import { loadPromptSettings } from '@/lib/prompt-settings'
 import { useChatStore } from '@/stores/useChatStore'
 import { useStore } from '@/stores/useStore'
-import type { ChatMessage, ProposalPayload } from '@/types/chat'
+import type { ChatMessage, ProposalPayload, ChatResponse } from '@/types/chat'
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
@@ -144,6 +144,12 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
       const controller = new AbortController()
       abortRef.current = controller
 
+      // Set 30s timeout for stream
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+        setError('Stream timeout after 30 seconds')
+      }, 30000)
+
       try {
         const keys = await loadApiKeys()
         const provider = resolveProvider(keys.provider, keys)
@@ -203,9 +209,9 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
         let assistantMessageId: string
 
         if (isStream && response.body) {
-          // Streaming path
+          // Streaming path: handle newline-delimited JSON chunks
           assistantMessageId = `msg-${Date.now()}-assistant`
-          let accumulatedText = ''
+          let latestChatResponse: Partial<ChatResponse> = {}
 
           // Create initial assistant message
           const initialAssistantMessage: ChatMessage = {
@@ -220,48 +226,126 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
 
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
+          let buffer = ''
 
           try {
             while (true) {
               const { value, done } = await reader.read()
               if (done) break
               if (value) {
-                accumulatedText += decoder.decode(value, { stream: true })
+                buffer += decoder.decode(value, { stream: true })
 
-                // Update message progressively
-                setMessages((curr) =>
-                  curr.map((msg) =>
-                    msg.id === assistantMessageId
-                      ? { ...msg, content: accumulatedText }
-                      : msg
-                  )
-                )
+                // Split by newlines and process complete JSON objects
+                const lines = buffer.split('\n')
+                buffer = lines[lines.length - 1] // Keep incomplete line in buffer
+
+                for (let i = 0; i < lines.length - 1; i++) {
+                  const line = lines[i].trim()
+                  if (!line) continue
+
+                  try {
+                    const chunk = JSON.parse(line) as Partial<ChatResponse>
+                    latestChatResponse = { ...latestChatResponse, ...chunk }
+
+                    // Update message content based on response mode
+                    const displayContent =
+                      latestChatResponse.mode === 'answer' && latestChatResponse.answerText
+                        ? latestChatResponse.answerText
+                        : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
+                        ? latestChatResponse.proposal.content
+                        : ''
+
+                    setMessages((curr) =>
+                      curr.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, content: displayContent }
+                          : msg
+                      )
+                    )
+                  } catch (parseError) {
+                    // Skip malformed JSON lines
+                    console.warn('Failed to parse JSON chunk:', line, parseError)
+                  }
+                }
               }
             }
             // Flush any remaining bytes
-            accumulatedText += decoder.decode()
+            buffer += decoder.decode()
+            if (buffer.trim()) {
+              try {
+                const chunk = JSON.parse(buffer) as Partial<ChatResponse>
+                latestChatResponse = { ...latestChatResponse, ...chunk }
+              } catch (parseError) {
+                console.warn('Failed to parse final JSON chunk:', buffer, parseError)
+              }
+            }
           } finally {
             reader.releaseLock()
           }
 
-          chatResponseText = accumulatedText
-        } else {
-          // Non-streaming JSON path (fallback for tests or when streaming disabled)
-          const json = (await response.json()) as unknown
-          const validated = validateChatResponse(json)
-
+          // Validate final accumulated response
+          const validated = validateChatResponse(latestChatResponse)
           if (!validated.success) {
             throw new Error(
               validated.error?.message || 'Invalid response from AI'
             )
           }
-
           const chatResponse = validated.data
-
           if (!chatResponse) {
             throw new Error('No data in validated response')
           }
-
+          // Update final message with mode and proposal metadata
+          const finalContent =
+            chatResponse.mode === 'answer'
+              ? chatResponse.answerText
+              : chatResponse.proposal.content
+          const proposalId = chatResponse.mode === 'proposal' ? `proposal-${Date.now()}` : undefined
+          setMessages((curr) =>
+            curr.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    content: finalContent,
+                    mode: chatResponse.mode,
+                    proposalId,
+                  }
+                : msg
+            )
+          )
+          if (chatResponse.mode === 'proposal' && proposalId) {
+            setPendingProposal({
+              nodeId,
+              proposalId,
+              payload: chatResponse.proposal,
+            })
+          }
+          // Save final thread
+          const finalMessages = await new Promise<ChatMessage[]>((resolve) => {
+            setMessages((curr) => {
+              const truncated = truncateMessages(curr)
+              resolve(truncated)
+              return truncated
+            })
+          })
+          await saveThread({
+            nodeId,
+            messages: finalMessages,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          })
+        } else {
+          // Non-streaming JSON path (fallback for tests or when streaming disabled)
+          const json = (await response.json()) as unknown
+          const validated = validateChatResponse(json)
+          if (!validated.success) {
+            throw new Error(
+              validated.error?.message || 'Invalid response from AI'
+            )
+          }
+          const chatResponse = validated.data
+          if (!chatResponse) {
+            throw new Error('No data in validated response')
+          }
           const assistantMessage: ChatMessage = {
             id: `msg-${Date.now()}-assistant`,
             nodeId,
@@ -273,94 +357,25 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             timestamp: Date.now(),
             mode: chatResponse.mode,
           }
-
           if (chatResponse.mode === 'proposal') {
             const proposalId = `proposal-${Date.now()}`
             assistantMessage.proposalId = proposalId
-
             setPendingProposal({
               nodeId,
               proposalId,
               payload: chatResponse.proposal,
             })
           }
-
           const updatedMessages = truncateMessages([...messages, userMessage, assistantMessage])
           setMessages(updatedMessages)
-
           await saveThread({
             nodeId,
             messages: updatedMessages,
             createdAt: Date.now(),
             updatedAt: Date.now(),
           })
-
           return
         }
-
-        // Parse streamed text as JSON and validate
-        let parsedJson: unknown
-        try {
-          parsedJson = JSON.parse(chatResponseText)
-        } catch {
-          throw new Error('Streamed response is not valid JSON')
-        }
-
-        const validated = validateChatResponse(parsedJson)
-
-        if (!validated.success) {
-          throw new Error(
-            validated.error?.message || 'Invalid response from AI'
-          )
-        }
-
-        const chatResponse = validated.data
-
-        if (!chatResponse) {
-          throw new Error('No data in validated response')
-        }
-
-        // Update final message with mode and proposal metadata
-        const finalContent =
-          chatResponse.mode === 'answer'
-            ? chatResponse.answerText
-            : chatResponse.proposal.content
-        const proposalId = chatResponse.mode === 'proposal' ? `proposal-${Date.now()}` : undefined
-        setMessages((curr) =>
-          curr.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  content: finalContent,
-                  mode: chatResponse.mode,
-                  proposalId,
-                }
-              : msg
-          )
-        )
-        if (chatResponse.mode === 'proposal' && proposalId) {
-          setPendingProposal({
-            nodeId,
-            proposalId,
-            payload: chatResponse.proposal,
-          })
-        }
-
-        // Save final thread
-        const finalMessages = await new Promise<ChatMessage[]>((resolve) => {
-          setMessages((curr) => {
-            const truncated = truncateMessages(curr)
-            resolve(truncated)
-            return truncated
-          })
-        })
-
-        await saveThread({
-          nodeId,
-          messages: finalMessages,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        })
       } catch (caught) {
         if (controller.signal.aborted) {
           return
@@ -370,6 +385,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           caught instanceof Error ? caught.message : 'Failed to send message'
         setError(message)
       } finally {
+        clearTimeout(timeoutId)
         if (abortRef.current === controller) {
           abortRef.current = null
         }

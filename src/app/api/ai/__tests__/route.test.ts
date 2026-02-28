@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { POST } from '@/app/api/ai/[provider]/route'
+vi.mock('ai', async () => {
+  const actual = await vi.importActual('ai')
+  return {
+    ...actual,
+    generateText: vi.fn(),
+    streamText: vi.fn(),
+  }
+})
 
 const streamFromStrings = (chunks: string[]) => {
   const encoder = new TextEncoder()
@@ -50,16 +57,13 @@ describe('/api/ai/[provider] route', () => {
     await expect(res.json()).resolves.toEqual({ error: 'apiKey is required' })
   })
 
-  it('non-stream openai returns normalized AiResponse json', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          model: 'gpt-4o',
-          choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      )
-    )
+  it('non-stream openai returns text json', async () => {
+    const { generateText } = await import('ai')
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: 'hi',
+      finishReason: 'stop',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    } as any)
 
     const res = await POST(
       new Request('http://localhost/api/ai/openai', {
@@ -77,27 +81,16 @@ describe('/api/ai/[provider] route', () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({
       text: 'hi',
-      model: 'gpt-4o',
-      finishReason: 'stop',
     })
   })
 
-  it('non-stream openai-compatible accepts gemini-style payloads from compatible gateways', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          model: 'gemini-2.5-flash',
-          candidates: [
-            {
-              content: {
-                parts: [{ text: '4' }],
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      )
-    )
+  it('non-stream openai-compatible returns text json', async () => {
+    const { generateText } = await import('ai')
+    vi.mocked(generateText).mockResolvedValueOnce({
+      text: '4',
+      finishReason: 'stop',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    } as any)
 
     const res = await POST(
       new Request('http://localhost/api/ai/openai-compatible', {
@@ -116,18 +109,18 @@ describe('/api/ai/[provider] route', () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({
       text: '4',
-      model: 'gemini-2.5-flash',
-      finishReason: 'stop',
     })
   })
 
-  it('stream gemini passes through SSE body', async () => {
-    const upstream = new Response(streamFromStrings(['data: {"x":1}\n\n']), {
-      status: 200,
-      headers: { 'content-type': 'text/event-stream' },
-    })
-
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(upstream)
+  it('stream gemini returns text stream', async () => {
+    const { streamText } = await import('ai')
+    const mockStream = {
+      toTextStreamResponse: () => new Response(streamFromStrings(['hi']), {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      }),
+    }
+    vi.mocked(streamText).mockReturnValueOnce(mockStream as any)
 
     const res = await POST(
       new Request('http://localhost/api/ai/gemini', {
@@ -143,12 +136,7 @@ describe('/api/ai/[provider] route', () => {
     )
 
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/event-stream')
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-
-    const calledUrl = String(fetchSpy.mock.calls[0]?.[0])
-    expect(calledUrl).toContain('generativelanguage.googleapis.com')
-    expect(calledUrl).toContain('key=gk-test')
+    expect(res.headers.get('content-type')).toContain('text/plain')
 
     // Ensure body is readable.
     const reader = res.body?.getReader()
@@ -158,7 +146,15 @@ describe('/api/ai/[provider] route', () => {
   })
 
   it('propagates upstream error as json error', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('bad', { status: 401 }))
+    const { generateText, APICallError } = await import('ai')
+    const error = new APICallError({
+      message: 'bad',
+      url: 'https://api.openai.com/v1/chat/completions',
+      requestBodyValues: {},
+      statusCode: 401,
+      responseBody: 'bad',
+    })
+    vi.mocked(generateText).mockRejectedValueOnce(error)
 
     const res = await POST(
       new Request('http://localhost/api/ai/openai', {

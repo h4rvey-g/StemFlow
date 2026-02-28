@@ -1,8 +1,8 @@
-import { APICallError, generateText, streamText } from 'ai'
+import { APICallError, generateObject, streamObject } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
-import { validateChatResponse } from '@/lib/ai/chat-schemas'
+import { chatResponseSchema } from '@/lib/ai/chat-schemas'
 import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
 import type { AiProvider } from '@/lib/ai/types'
 import type { LanguageModel } from 'ai'
@@ -52,30 +52,6 @@ const normalizeAncestry = (ancestry: RequestBody['ancestry']): string | null => 
   return null
 }
 
-const parseJsonFromModelText = (text: string): unknown => {
-  const trimmed = text.trim()
-  if (!trimmed) return null
-
-  const candidates: string[] = [trimmed]
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-  if (fenced?.[1]) candidates.push(fenced[1].trim())
-
-  const firstBrace = trimmed.indexOf('{')
-  const lastBrace = trimmed.lastIndexOf('}')
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    candidates.push(trimmed.slice(firstBrace, lastBrace + 1))
-  }
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate)
-    } catch {
-      continue
-    }
-  }
-
-  return null
-}
 
 const buildProviderModel = (
   provider: AiProvider,
@@ -170,35 +146,36 @@ export async function POST(request: Request) {
 
   if (body.stream) {
     try {
-      const result = streamText(callOptions)
+      const result = streamObject({
+        ...callOptions,
+        schema: chatResponseSchema,
+        output: 'object',
+      })
       return result.toTextStreamResponse()
     } catch (error) {
       return handleSdkError(error)
     }
   }
 
-  // Non-streaming path: generate full text, parse JSON, validate with schema
-  let resultText: string
+  // Non-streaming path: generate full object with schema validation
+  let resultData: unknown
   try {
-    const result = await generateText(callOptions)
-    resultText = result.text
+    const result = await generateObject({
+      ...callOptions,
+      schema: chatResponseSchema,
+      output: 'object',
+    })
+    resultData = result.object
   } catch (error) {
     return handleSdkError(error)
   }
 
-  const parsedJson = parseJsonFromModelText(resultText)
-  if (!parsedJson) {
-    return jsonError('AI response is not valid JSON', 422)
+  // Data is already validated by AI SDK schema enforcement
+  if (!resultData) {
+    return jsonError('AI response is empty', 422)
   }
 
-  const validated = validateChatResponse(parsedJson)
-  if (!validated.success) {
-    return jsonError(validated.error?.message || 'Invalid chat response', 422, {
-      issues: validated.error?.issues || [],
-    })
-  }
-
-  return Response.json(validated.data, {
+  return Response.json(resultData, {
     status: 200,
     headers: {
       'Cache-Control': 'no-store',

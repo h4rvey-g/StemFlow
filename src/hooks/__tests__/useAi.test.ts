@@ -66,11 +66,10 @@ describe('useAi', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
         streamFromStrings([
-          'data: {"choices":[{"delta":{"content":"Hello "}}]}\n',
-          'data: {"choices":[{"delta":{"content":"World"}}]}\n',
-          'data: [DONE]\n',
+          'Hello ',
+          'World',
         ]),
-        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        { status: 200, headers: { 'content-type': 'text/plain' } }
       )
     )
 
@@ -88,10 +87,9 @@ describe('useAi', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
         streamFromStrings([
-          'data: {"choices":[{"delta":{"content":"Result"}}]}\n',
-          'data: [DONE]\n',
+          'Result',
         ]),
-        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        { status: 200, headers: { 'content-type': 'text/plain' } }
       )
     )
 
@@ -215,10 +213,9 @@ describe('useAi', () => {
       .mockResolvedValueOnce(
         new Response(
           streamFromStrings([
-            'data: {"choices":[{"delta":{"content":"Recovered"}}]}\n',
-            'data: [DONE]\n',
+            'Recovered',
           ]),
-          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+          { status: 200, headers: { 'content-type': 'text/plain' } }
         )
       )
 
@@ -330,10 +327,9 @@ describe('useAi', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
         streamFromStrings([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: wrappedJson } }] })}\n`,
-          'data: [DONE]\n',
+          wrappedJson,
         ]),
-        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        { status: 200, headers: { 'content-type': 'text/plain' } }
       )
     )
 

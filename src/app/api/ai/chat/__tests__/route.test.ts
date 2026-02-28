@@ -10,7 +10,7 @@ import type { Mock } from 'vitest'
  *  2. We define a minimal inline `APICallError` that satisfies the shape used
  *     by `handleSdkError` in route.ts.  Both the route import and test import
  *     resolve to the same class via this mock, so `instanceof` works correctly.
- *  3. `generateText` / `streamText` are plain `vi.fn()` stubs.
+ *  3. `generateObject` / `streamObject` are plain `vi.fn()` stubs.
  */
 vi.mock('ai', () => {
   class APICallError extends Error {
@@ -47,17 +47,17 @@ vi.mock('ai', () => {
 
   return {
     APICallError,
-    generateText: vi.fn(),
-    streamText: vi.fn(),
+    generateObject: vi.fn(),
+    streamObject: vi.fn(),
   }
 })
 
-import { APICallError, generateText } from 'ai'
+import { APICallError, generateObject } from 'ai'
 import { POST } from '@/app/api/ai/chat/route'
 
 // Cast mocked functions – vi.mocked() is unavailable in this bun+vitest build.
 // vi.mock above provides vi.fn() at runtime, so the cast is safe.
-const genTextMock = generateText as unknown as Mock
+const genObjMock = generateObject as unknown as Mock
 
 const baseRequestBody = {
   provider: 'openai' as const,
@@ -74,9 +74,9 @@ const baseRequestBody = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Minimal resolved value for a mocked generateText call. */
-const makeTextResult = (text: string) =>
-  ({ text } as Awaited<ReturnType<typeof generateText>>)
+/** Minimal resolved value for a mocked generateObject call. */
+const makeObjectResult = (chatResponse: Record<string, unknown>) =>
+  ({ object: chatResponse } as Awaited<ReturnType<typeof generateObject>>)
 
 /** Create an APICallError (using the mocked class) with the given HTTP status. */
 const makeApiCallError = (statusCode: number, responseBody: Record<string, unknown>) =>
@@ -157,7 +157,7 @@ describe('/api/ai/chat route', () => {
       },
     }
 
-    genTextMock.mockResolvedValueOnce(makeTextResult(JSON.stringify(proposalJson)))
+    genObjMock.mockResolvedValueOnce(makeObjectResult(proposalJson))
 
     const res = await POST(
       new Request('http://localhost/api/ai/chat', {
@@ -174,8 +174,8 @@ describe('/api/ai/chat route', () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual(proposalJson)
 
-    // Verify prompt interpolation was applied when calling generateText
-    const callArgs = genTextMock.mock.calls[0]?.[0] as
+    // Verify prompt interpolation was applied when calling generateObject
+    const callArgs = genObjMock.mock.calls[0]?.[0] as
       | { messages?: Array<{ role: string; content: string }> }
       | undefined
     expect(callArgs?.messages?.[0]).toEqual({
@@ -189,8 +189,8 @@ describe('/api/ai/chat route', () => {
   })
 
   it('supports gemini provider', async () => {
-    genTextMock.mockResolvedValueOnce(
-      makeTextResult('{"mode":"answer","answerText":"Looks plausible."}')
+    genObjMock.mockResolvedValueOnce(
+      makeObjectResult({ mode: 'answer', answerText: 'Looks plausible.' })
     )
     const res = await POST(
       new Request('http://localhost/api/ai/chat', {
@@ -211,7 +211,7 @@ describe('/api/ai/chat route', () => {
   // --- Error propagation ----------------------------------------------------
 
   it('propagates upstream non-2xx JSON error payload', async () => {
-    genTextMock.mockRejectedValueOnce(makeApiCallError(401, { error: 'Invalid key' }))
+    genObjMock.mockRejectedValueOnce(makeApiCallError(401, { error: 'Invalid key' }))
 
     const res = await POST(
       new Request('http://localhost/api/ai/chat', {
@@ -227,7 +227,7 @@ describe('/api/ai/chat route', () => {
   // --- Response-body validation ---------------------------------------------
 
   it('returns 422 when model output is not valid JSON', async () => {
-    genTextMock.mockResolvedValueOnce(makeTextResult('plain text output'))
+    genObjMock.mockRejectedValueOnce(makeApiCallError(422, { error: 'AI response is not valid JSON' }))
 
     const res = await POST(
       new Request('http://localhost/api/ai/chat', {
@@ -241,9 +241,7 @@ describe('/api/ai/chat route', () => {
   })
 
   it('returns 422 when parsed JSON fails ChatResponse validation', async () => {
-    genTextMock.mockResolvedValueOnce(
-      makeTextResult('{"invalid":"shape"}')
-    )
+    genObjMock.mockRejectedValueOnce(makeApiCallError(422, { error: 'Invalid chat response', issues: [{ code: 'invalid_type' }] }))
     const res = await POST(
       new Request('http://localhost/api/ai/chat', {
         method: 'POST',

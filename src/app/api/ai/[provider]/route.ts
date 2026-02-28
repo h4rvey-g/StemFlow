@@ -1,7 +1,9 @@
-import { createAnthropicRequest, parseAnthropicResponse } from '@/lib/ai/anthropic'
-import { createGeminiRequest, GEMINI_API_URL, parseGeminiResponse } from '@/lib/ai/gemini'
-import { createOpenAIRequest, parseOpenAIResponse } from '@/lib/ai/openai'
-import type { AiProvider, AiRequestOptions, AiResponse } from '@/lib/ai/types'
+import { APICallError, generateText, streamText } from 'ai'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createOpenAI } from '@ai-sdk/openai'
+import type { AiProvider, AiMessage } from '@/lib/ai/types'
+import type { LanguageModel } from 'ai'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,8 +11,8 @@ type Params = { provider: string }
 
 type RequestBody = {
   apiKey?: string
-  model?: AiRequestOptions['model']
-  messages?: AiRequestOptions['messages']
+  model?: string
+  messages?: AiMessage[]
   temperature?: number
   maxTokens?: number
   stream?: boolean
@@ -29,30 +31,44 @@ const normalizeBaseUrl = (value?: string): string | null => {
 
 const jsonError = (message: string, status: number) =>
   Response.json({ error: message }, { status })
-
-const withGeminiKey = (url: string, apiKey: string) => {
-  const final = new URL(url)
-  final.searchParams.set('key', apiKey)
-  return final.toString()
+const buildProviderModel = (
+  provider: AiProvider,
+  apiKey: string,
+  model: string,
+  baseUrl?: string | null
+): LanguageModel => {
+  if (provider === 'gemini') {
+    return createGoogleGenerativeAI({ apiKey })(model)
+  }
+  if (provider === 'openai') {
+    return createOpenAI({ apiKey })(model)
+  }
+  if (provider === 'openai-compatible') {
+    return createOpenAI({
+      apiKey,
+      baseURL: baseUrl ?? undefined,
+    })(model)
+  }
+  // anthropic
+  return createAnthropic({ apiKey })(model)
 }
-
-const parseOpenAICompatibleResponse = (json: unknown): AiResponse => {
-  const parsedOpenAI = parseOpenAIResponse(json)
-  if (parsedOpenAI.text.trim()) {
-    return parsedOpenAI
+const handleSdkError = (error: unknown): Response => {
+  if (error instanceof APICallError) {
+    const status = error.statusCode ?? 502
+    let payload: Record<string, unknown>
+    if (error.responseBody) {
+      try {
+        payload = JSON.parse(error.responseBody) as Record<string, unknown>
+      } catch {
+        payload = { error: error.message }
+      }
+    } else {
+      payload = { error: error.message }
+    }
+    return Response.json(payload, { status })
   }
-
-  const parsedGemini = parseGeminiResponse(json)
-  if (parsedGemini.text.trim()) {
-    return parsedGemini
-  }
-
-  const parsedAnthropic = parseAnthropicResponse(json)
-  if (parsedAnthropic.text.trim()) {
-    return parsedAnthropic
-  }
-
-  return parsedOpenAI
+  const message = error instanceof Error ? error.message : 'Upstream request failed'
+  return jsonError(message, 502)
 }
 
 export async function POST(request: Request, context: { params: Params }) {
@@ -60,112 +76,50 @@ export async function POST(request: Request, context: { params: Params }) {
   if (!isProvider(providerRaw)) {
     return jsonError('Invalid provider', 400)
   }
-
   let body: RequestBody
   try {
     body = (await request.json()) as RequestBody
   } catch {
     return jsonError('Invalid JSON body', 400)
   }
-
   if (!body.apiKey) return jsonError('apiKey is required', 400)
   if (!body.model) return jsonError('model is required', 400)
   if (!body.messages || !Array.isArray(body.messages)) return jsonError('messages is required', 400)
-
-  const options: AiRequestOptions = {
-    provider: providerRaw,
-    model: body.model,
-    messages: body.messages,
-    temperature: body.temperature,
-    maxTokens: body.maxTokens,
-    stream: Boolean(body.stream),
-  }
-
-  const apiKey = body.apiKey
-
-  const upstreamInit: RequestInit = {
-    method: 'POST',
-    headers: {},
-  }
-
-  let url: string
-  let reqBody: unknown
-  let headers: Record<string, string>
-
-  if (providerRaw === 'gemini') {
-    const gem = createGeminiRequest(options)
-    url = withGeminiKey(gem.url, apiKey)
-    reqBody = gem.body
-    headers = gem.headers
-  } else if (providerRaw === 'openai' || providerRaw === 'openai-compatible') {
-    const openai = createOpenAIRequest(options)
-    const baseUrl = normalizeBaseUrl(body.baseUrl)
-    url = baseUrl ? `${baseUrl}/chat/completions` : openai.url
-    reqBody = openai.body
-    headers = {
-      ...openai.headers,
-      Authorization: `Bearer ${apiKey}`,
-    }
-  } else {
-    const anthropic = createAnthropicRequest(options)
-    url = anthropic.url
-    reqBody = anthropic.body
-    headers = {
-      ...anthropic.headers,
-      'x-api-key': apiKey,
+  const baseUrl = normalizeBaseUrl(body.baseUrl)
+  const providerModel = buildProviderModel(providerRaw, body.apiKey, body.model, baseUrl)
+  // Convert messages to AI SDK format
+  const sdkMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = body.messages.map(
+    (msg: AiMessage) => ({
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content : msg.content.filter(p => p.type === 'text').map(p => (p as any).text).join(''),
+    })
+  )
+  const callOptions = {
+    model: providerModel,
+    messages: sdkMessages,
+    temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
+    maxTokens: typeof body.maxTokens === 'number' ? body.maxTokens : undefined,
+  } as const
+  if (body.stream) {
+    try {
+      const result = streamText(callOptions)
+      return result.toTextStreamResponse()
+    } catch (error) {
+      return handleSdkError(error)
     }
   }
-
-  upstreamInit.headers = headers
-  upstreamInit.body = JSON.stringify(reqBody)
-
-  // Required by Node's fetch implementation when streaming bodies.
-  ;(upstreamInit as any).duplex = 'half'
-
-  let upstream: Response
+  // Non-streaming path
   try {
-    upstream = await fetch(url, upstreamInit)
-  } catch {
-    return jsonError('Upstream request failed', 502)
-  }
-
-  if (!upstream.ok) {
-    const text = await upstream.text().catch(() => '')
-    return jsonError(text || 'Upstream error', upstream.status)
-  }
-
-  if (!options.stream) {
-    const json = await upstream.json().catch(() => null)
-
-    let parsed: AiResponse
-    if (providerRaw === 'gemini') parsed = parseGeminiResponse(json)
-    else if (providerRaw === 'openai') parsed = parseOpenAIResponse(json)
-    else if (providerRaw === 'openai-compatible') parsed = parseOpenAICompatibleResponse(json)
-    else parsed = parseAnthropicResponse(json)
-
-    return Response.json(parsed, {
+    const result = await generateText(callOptions)
+    return Response.json({ text: result.text }, {
       status: 200,
       headers: {
         'Cache-Control': 'no-store',
       },
     })
+  } catch (error) {
+    return handleSdkError(error)
   }
-
-  // Stream: pass through provider SSE to client.
-  const contentType = upstream.headers.get('content-type') ?? 'text/event-stream; charset=utf-8'
-
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      'Content-Type': contentType,
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  })
 }
 
 export const runtime = 'nodejs'
-
-// For tests: ensure GEMINI_API_URL is referenced so it stays in-bundle.
-void GEMINI_API_URL

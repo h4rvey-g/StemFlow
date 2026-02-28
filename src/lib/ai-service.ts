@@ -1,6 +1,9 @@
+import { generateText, streamText } from 'ai'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { loadApiKeys } from '@/lib/api-keys'
 import { getModelOutputTokenLimit } from '@/lib/ai/max-tokens'
-import { parseAnthropicStream, parseGeminiStream, parseOpenAIStream } from '@/lib/ai/stream-parser'
 import { formatAncestryForPrompt } from '@/lib/graph'
 import type { NodeSuggestionContext } from '@/lib/graph'
 import type { AiMessage, AiProvider } from '@/lib/ai/types'
@@ -15,6 +18,10 @@ import {
   formatExperimentalConditionsForPrompt,
 } from '@/stores/useStore'
 import { searchExa } from '@/lib/exa-search'
+
+// Default models
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o'
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 
 export interface GeneratedStep {
   type: NodeType
@@ -144,6 +151,31 @@ const getProviderSettings = async (mode: ModelMode = 'think') => {
   throw new Error(`No API key configured for provider: ${provider}`)
 }
 
+const buildAiSdkModel = (provider: AiProvider, apiKey: string, model: string, baseUrl?: string | null) => {
+  if (provider === 'gemini') {
+    return createGoogleGenerativeAI({ apiKey })(model)
+  }
+  if (provider === 'openai') {
+    return createOpenAI({ apiKey })(model)
+  }
+  if (provider === 'openai-compatible') {
+    return createOpenAI({
+      apiKey,
+      baseURL: baseUrl ?? undefined,
+    })(model)
+  }
+  // anthropic
+  return createAnthropic({ apiKey })(model)
+}
+const convertToAiSdkMessages = (messages: AiMessage[]) => {
+  return messages.map((msg) => {
+    const content = typeof msg.content === 'string' ? msg.content : msg.content.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('\n')
+    return {
+      role: msg.role as 'system' | 'user' | 'assistant',
+      content,
+    }
+  })
+}
 const parseNumericRatingFromText = (text: string): number | null => {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -277,56 +309,51 @@ const recoverGrade = async (
   settings: Awaited<ReturnType<typeof getProviderSettings>>
 ): Promise<number | null> => {
   const promptSettings = loadPromptSettings()
-
-  const response = await requestAiResponseWithRetry(settings.provider, {
-    apiKey: settings.apiKey,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    messages: [
-      {
-        role: 'system',
-        content: promptSettings.ratingExtractionSystemPrompt,
-      },
-      {
-        role: 'user',
-        content: interpolatePromptTemplate(promptSettings.ratingExtractionUserPromptTemplate, {
-          text,
-        }),
-      },
-    ],
-    stream: false,
-    temperature: 0,
-  }).catch((error) => {
+  const model = buildAiSdkModel(settings.provider, settings.apiKey, settings.model, settings.baseUrl)
+  
+  try {
+    const response = await generateText({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: promptSettings.ratingExtractionSystemPrompt,
+        },
+        {
+          role: 'user',
+          content: interpolatePromptTemplate(promptSettings.ratingExtractionUserPromptTemplate, {
+            text,
+          }),
+        },
+      ],
+      temperature: 0,
+    })
+    
+    const candidate = response.text.trim()
+    if (!candidate) {
+      console.warn('[gradeNode] Recovery returned empty candidate text', {
+        provider: settings.provider,
+        model: settings.model,
+      })
+      return null
+    }
+    
+    const parsed = parseNumericRatingFromText(candidate)
+    console.debug('[gradeNode] Recovery parse result', {
+      provider: settings.provider,
+      model: settings.model,
+      candidatePreview: candidate.slice(0, 160),
+      parsed,
+    })
+    return parsed
+  } catch (error) {
     console.warn('[gradeNode] Recovery request failed', {
       provider: settings.provider,
       model: settings.model,
       error,
     })
     return null
-  })
-
-  if (!response) return null
-
-  const json = (await response.json()) as { text?: string; finishReason?: string }
-  const candidate = typeof json.text === 'string' ? json.text : ''
-  if (!candidate.trim()) {
-    console.warn('[gradeNode] Recovery returned empty candidate text', {
-      provider: settings.provider,
-      model: settings.model,
-      finishReason: json.finishReason,
-    })
-    return null
   }
-
-  const parsed = parseNumericRatingFromText(candidate)
-  console.debug('[gradeNode] Recovery parse result', {
-    provider: settings.provider,
-    model: settings.model,
-    finishReason: json.finishReason,
-    candidatePreview: candidate.slice(0, 160),
-    parsed,
-  })
-  return parsed === null ? null : parsed
 }
 
 const retryDirectGrade = async (
@@ -334,106 +361,51 @@ const retryDirectGrade = async (
   node: Pick<NodeSuggestionContext, 'id' | 'type' | 'content'>,
   goal: string,
 ): Promise<number | null> => {
-  const response = await requestAiResponseWithRetry(settings.provider, {
-    apiKey: settings.apiKey,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Return exactly one integer from 1 to 5 for scientific node quality. No JSON, no markdown, no explanation.',
-      },
-      {
-        role: 'user',
-        content: [
-          `Goal: ${goal}`,
-          `Node ID: ${node.id}`,
-          `Node type: ${node.type}`,
-          `Node content: ${node.content}`,
-          'Output only one digit (1,2,3,4,5).',
-        ].join('\n'),
-      },
-    ],
-    stream: false,
-    temperature: 0,
-  }).catch((error) => {
+  const model = buildAiSdkModel(settings.provider, settings.apiKey, settings.model, settings.baseUrl)
+  
+  try {
+    const response = await generateText({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: 'Return exactly one integer from 1 to 5 for scientific node quality. No JSON, no markdown, no explanation.',
+        },
+        {
+          role: 'user',
+          content: [
+            `Goal: ${goal}`,
+            `Node ID: ${node.id}`,
+            `Node type: ${node.type}`,
+            `Node content: ${node.content}`,
+            'Output only one digit (1,2,3,4,5).',
+          ].join('\n'),
+        },
+      ],
+      temperature: 0,
+    })
+    
+    const candidate = response.text.trim()
+    const parsed = parseNumericRatingFromText(candidate)
+    
+    console.debug('[gradeNode] Direct retry parse result', {
+      provider: settings.provider,
+      model: settings.model,
+      candidatePreview: candidate.slice(0, 120),
+      parsed,
+    })
+    
+    return parsed
+  } catch (error) {
     console.warn('[gradeNode] Direct retry request failed', {
       provider: settings.provider,
       model: settings.model,
       error,
     })
     return null
-  })
-
-  if (!response) return null
-
-  const json = (await response.json()) as { text?: string; finishReason?: string }
-  const candidate = typeof json.text === 'string' ? json.text : ''
-  const parsed = parseNumericRatingFromText(candidate)
-
-  console.debug('[gradeNode] Direct retry parse result', {
-    provider: settings.provider,
-    model: settings.model,
-    finishReason: json.finishReason,
-    candidatePreview: candidate.slice(0, 120),
-    parsed,
-  })
-
-  return parsed
-}
-
-const readErrorMessage = async (response: Response): Promise<string> => {
-  const contentType = response.headers.get('content-type') || ''
-
-  if (contentType.includes('application/json')) {
-    const json = await response.json().catch(() => null)
-    if (json && typeof json === 'object' && 'error' in json && typeof json.error === 'string') {
-      return json.error
-    }
   }
-
-  const text = await response.text().catch(() => '')
-  return text || `Vision request failed with status ${response.status}`
 }
 
-const requestAiResponseWithRetry = async (
-  provider: AiProvider,
-  payload: Record<string, unknown>
-): Promise<Response> => {
-  let lastError: unknown = null
-
-  for (let attempt = 1; attempt <= MAX_AI_REQUEST_ATTEMPTS; attempt += 1) {
-    const response = await fetch(`/api/ai/${provider}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch((caught) => {
-      lastError = caught
-      return null
-    })
-
-    if (!response) {
-      if (attempt < MAX_AI_REQUEST_ATTEMPTS) {
-        continue
-      }
-      break
-    }
-
-    if (response.ok) {
-      return response
-    }
-
-    if (attempt < MAX_AI_REQUEST_ATTEMPTS && isRetryableStatus(response.status)) {
-      continue
-    }
-
-    throw new Error(await readErrorMessage(response))
-  }
-
-  const message = lastError instanceof Error ? lastError.message : 'AI request failed'
-  throw new Error(message)
-}
 
 export const describeImageWithVision = async (
   imageDataUrl: string,
@@ -442,13 +414,14 @@ export const describeImageWithVision = async (
   const settings = await getProviderSettings()
   const promptSettings = loadPromptSettings()
   const maxTokens = getModelOutputTokenLimit(settings.model)
-
+  const model = buildAiSdkModel(settings.provider, settings.apiKey, settings.model, settings.baseUrl)
+  
   const messageText = contextText?.trim()
     ? interpolatePromptTemplate(promptSettings.visionUserPromptWithContextTemplate, {
         context: contextText.trim(),
       })
     : promptSettings.visionUserPromptWithoutContext
-
+  
   const messages: AiMessage[] = [
     {
       role: 'system',
@@ -462,24 +435,20 @@ export const describeImageWithVision = async (
       ],
     },
   ]
-
-  const response = await requestAiResponseWithRetry(settings.provider, {
-    apiKey: settings.apiKey,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    messages,
-    stream: false,
+  
+  const response = await generateText({
+    model,
+    messages: convertToAiSdkMessages(messages) as any,
     temperature: 0.2,
     ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
   })
-
-  const json = (await response.json()) as { text?: string }
-  const description = typeof json.text === 'string' ? json.text.trim() : ''
-
+  
+  const description = response.text.trim()
+  
   if (!description) {
     throw new Error('Vision model returned an empty description.')
   }
-
+  
   return description
 }
 
@@ -490,15 +459,16 @@ export const gradeNode = async (
   const settings = await getProviderSettings('fast')
   const promptSettings = loadPromptSettings()
   const maxTokens = getModelOutputTokenLimit(settings.model)
+  const model = buildAiSdkModel(settings.provider, settings.apiKey, settings.model, settings.baseUrl)
   const goal = globalGoal.trim() || promptSettings.gradeGlobalGoalFallback
-
+  
   const prompt = interpolatePromptTemplate(promptSettings.gradeUserPromptTemplate, {
     goal,
     nodeId: node.id,
     nodeType: node.type,
     nodeContent: node.content,
   })
-
+  
   const messages: AiMessage[] = [
     {
       role: 'system',
@@ -509,7 +479,7 @@ export const gradeNode = async (
       content: prompt,
     },
   ]
-
+  
   console.debug('[gradeNode] Starting AI grade', {
     nodeId: node.id,
     nodeType: node.type,
@@ -517,28 +487,23 @@ export const gradeNode = async (
     model: settings.model,
     contentLength: node.content.length,
   })
-
-  const response = await requestAiResponseWithRetry(settings.provider, {
-    apiKey: settings.apiKey,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    messages,
-    stream: false,
+  
+  const response = await generateText({
+    model,
+    messages: convertToAiSdkMessages(messages) as any,
     temperature: 0,
     ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
   })
-
-  const json = (await response.json()) as { text?: string; finishReason?: string }
-  const text = typeof json.text === 'string' ? json.text : ''
-
+  
+  const text = response.text
+  
   console.debug('[gradeNode] Primary response received', {
     provider: settings.provider,
     model: settings.model,
-    finishReason: json.finishReason,
     textPreview: text.slice(0, 200),
     textLength: text.length,
   })
-
+  
   const parsed = parseGrade(text)
   if (parsed !== null) {
     console.debug('[gradeNode] Parsed grade from primary response', {
@@ -547,13 +512,13 @@ export const gradeNode = async (
     })
     return parsed
   }
-
+  
   console.warn('[gradeNode] Primary parse failed, attempting recovery', {
     nodeId: node.id,
     provider: settings.provider,
     model: settings.model,
   })
-
+  
   const retried = await retryDirectGrade(settings, node, goal).catch(() => null)
   if (retried !== null) {
     console.debug('[gradeNode] Recovered grade from direct retry', {
@@ -562,13 +527,13 @@ export const gradeNode = async (
     })
     return retried
   }
-
+  
   console.warn('[gradeNode] Direct retry failed, attempting extraction recovery', {
     nodeId: node.id,
     provider: settings.provider,
     model: settings.model,
   })
-
+  
   const recovered = await recoverGrade(text, settings).catch(() => null)
   if (recovered !== null) {
     console.debug('[gradeNode] Recovered grade from extraction prompt', {
@@ -577,7 +542,7 @@ export const gradeNode = async (
     })
     return recovered
   }
-
+  
   // Neutral fallback keeps the UI usable even if provider output is malformed.
   console.warn('[gradeNode] Falling back to neutral grade 3', {
     nodeId: node.id,
@@ -588,8 +553,6 @@ export const gradeNode = async (
   return 3
 }
 
-const DEFAULT_OPENAI_MODEL = 'gpt-4o'
-const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -1034,219 +997,6 @@ const parsePlannedDirections = (payload: unknown, minCount: number = PLANNED_DIR
   return directions
 }
 
-const requestAiText = async (
-  provider: 'openai' | 'anthropic' | 'openai-compatible',
-  apiKey: string,
-  modelName: string,
-  baseUrl: string | null | undefined,
-  messages: AiMessage[],
-  temperature: number,
-  maxTokens?: number,
-  options?: RequestAiTextOptions
-): Promise<{ text: string; finishReason: string; responseModel: string }> => {
-  const streamParser =
-    provider === 'anthropic'
-      ? parseAnthropicStream
-      : provider === 'openai' || provider === 'openai-compatible'
-        ? parseOpenAIStream
-        : parseGeminiStream
-
-  const parseJsonTextResponse = async (response: Response): Promise<{ text: string; finishReason: string; responseModel: string }> => {
-    const json = (await response.json()) as {
-      text?: string
-      finishReason?: string
-      model?: string
-    }
-
-    return {
-      text: typeof json.text === 'string' ? json.text : '',
-      finishReason: typeof json.finishReason === 'string' ? json.finishReason : 'unknown',
-      responseModel: typeof json.model === 'string' ? json.model : modelName,
-    }
-  }
-
-  const readSseTextResponse = async (
-    response: Response,
-    onChunk?: (text: string, chunkText: string) => void,
-    provider?: AiProvider
-  ): Promise<string> => {
-    const reader = response.body?.getReader()
-    if (!reader) {
-      return ''
-    }
-
-    let text = ''
-    const iterator = streamParser(reader)[Symbol.asyncIterator]()
-    const timeoutMs = provider === 'openai-compatible' ? OPENAI_COMPAT_STREAM_CHUNK_TIMEOUT_MS : STREAM_CHUNK_TIMEOUT_MS
-
-    while (true) {
-      const chunkResult = await nextStreamChunkWithTimeout(
-        iterator,
-        timeoutMs,
-        () => {
-          void reader.cancel('stream-timeout')
-        }
-      )
-
-      if (chunkResult.done) break
-      const chunk = chunkResult.value
-      if (chunk.done) break
-
-      text += chunk.text
-      onChunk?.(text, chunk.text)
-    }
-
-    return text
-  }
-
-  const basePayload = {
-    apiKey,
-    model: modelName,
-    baseUrl: baseUrl || undefined,
-    messages,
-    temperature,
-    ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
-  }
-
-  const requestNonStreamingFallback = async (): Promise<{ text: string; finishReason: string; responseModel: string }> => {
-    const fallbackResponse = await requestAiResponseWithRetry(provider, {
-      ...basePayload,
-      stream: false,
-    })
-
-    const fallbackContentType = fallbackResponse.headers.get('content-type') || ''
-    const fallbackIsSse = fallbackContentType.includes('text/event-stream')
-
-    if (fallbackIsSse) {
-      if (hasStreamingObserver) {
-        console.warn('[AI Service] Non-stream fallback returned SSE, parsing streamed fallback content', {
-          provider,
-          modelName,
-          contentType: fallbackContentType,
-        })
-      }
-
-      const text = await readSseTextResponse(fallbackResponse, undefined, provider)
-      if (!text.trim()) {
-        throw new Error('AI fallback stream returned no content')
-      }
-
-      return {
-        text,
-        finishReason: 'unknown',
-        responseModel: modelName,
-      }
-    }
-
-    return parseJsonTextResponse(fallbackResponse)
-  }
-
-  const nextStreamChunkWithTimeout = async <T>(
-    iterator: AsyncIterator<T>,
-    timeoutMs: number,
-    onTimeout: () => void
-  ): Promise<IteratorResult<T>> => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-    try {
-      return await Promise.race([
-        iterator.next(),
-        new Promise<IteratorResult<T>>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            onTimeout()
-            reject(new Error('AI stream timed out'))
-          }, timeoutMs)
-        }),
-      ])
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-    }
-  }
-
-  const aiStreamingEnabled = (await loadApiKeys()).aiStreamingEnabled ?? true
-  const hasStreamingObserver = typeof options?.onStreamingRawText === 'function'
-
-  if (aiStreamingEnabled && hasStreamingObserver) {
-    console.info('[AI Service] Streaming enabled for generation request', {
-      provider,
-      modelName,
-    })
-  } else if (!aiStreamingEnabled && hasStreamingObserver) {
-    console.info('[AI Service] Streaming disabled, using non-streaming generation request', {
-      provider,
-      modelName,
-    })
-  }
-
-  const response = await requestAiResponseWithRetry(provider, {
-    ...basePayload,
-    stream: aiStreamingEnabled,
-  })
-
-  const contentType = response.headers.get('content-type') || ''
-  const isSseStream = contentType.includes('text/event-stream')
-
-  if (aiStreamingEnabled && isSseStream && response.body) {
-    let receivedStreamingChunk = false
-    let text = ''
-
-    try {
-      text = await readSseTextResponse(response, (streamedText, chunkText) => {
-        if (hasStreamingObserver && chunkText.length > 0 && !receivedStreamingChunk) {
-          receivedStreamingChunk = true
-          console.info('[AI Service] Streaming content is flowing', {
-            provider,
-            modelName,
-          })
-        }
-        options?.onStreamingRawText?.(streamedText)
-      }, provider)
-    } catch (error) {
-      console.warn('[AI Service] Stream parsing failed, retrying as non-stream response', {
-        provider,
-        modelName,
-        error,
-      })
-      return requestNonStreamingFallback()
-    }
-
-    if (!text.trim()) {
-      if (hasStreamingObserver) {
-        console.warn('[AI Service] Streaming produced no content, switching to non-stream fallback', {
-          provider,
-          modelName,
-        })
-      }
-      return requestNonStreamingFallback()
-    }
-
-    if (hasStreamingObserver) {
-      console.info('[AI Service] Streaming generation completed with content', {
-        provider,
-        modelName,
-        textLength: text.length,
-      })
-    }
-
-    return {
-      text,
-      finishReason: 'unknown',
-      responseModel: modelName,
-    }
-  }
-
-  if (aiStreamingEnabled && !isSseStream && hasStreamingObserver) {
-    console.warn('[AI Service] Stream requested but SSE response unavailable, parsing JSON response', {
-      provider,
-      modelName,
-      contentType,
-    })
-  }
-
-  return parseJsonTextResponse(response)
-}
 
 const buildPlannerPrompt = (
   ancestry: OMVNode[],
@@ -1477,13 +1227,11 @@ export async function planNextDirections(
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
   const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
   const plannerMaxTokens = getModelOutputTokenLimit(modelName)
-
-  const plannerResponse = await requestAiText(
-    provider,
-    apiKey,
-    modelName,
-    baseUrl,
-    [
+  const aiModel = buildAiSdkModel(provider, apiKey, modelName, baseUrl)
+  
+  const plannerResponse = await generateText({
+    model: aiModel,
+    messages: [
       {
         role: 'system',
         content: 'You are a scientific research planner. Output strict JSON only.',
@@ -1493,34 +1241,30 @@ export async function planNextDirections(
         content: buildPlannerPrompt(ancestry, globalGoal, expectedNextType, gradedNodes),
       },
     ],
-    0.2,
-    plannerMaxTokens
-  )
-
+    temperature: 0.2,
+    ...(typeof plannerMaxTokens === 'number' ? { maxTokens: plannerMaxTokens } : {}),
+  })
+  
   let plannedDirections: PlannedDirection[]
   try {
     const plannerPayload = extractJsonPayload(plannerResponse.text)
     plannedDirections = parsePlannedDirections(JSON.parse(plannerPayload))
   } catch (parseError) {
-    if (plannerResponse.finishReason === 'length') {
-      const repaired = repairTruncatedJsonArray(plannerResponse.text)
-      if (repaired) {
-        try {
-          plannedDirections = parsePlannedDirections(repaired, 1)
-        } catch {
-          throw parseError
-        }
-      } else {
+    const repaired = repairTruncatedJsonArray(plannerResponse.text)
+    if (repaired) {
+      try {
+        plannedDirections = parsePlannedDirections(repaired, 1)
+      } catch {
         throw parseError
       }
     } else {
       throw parseError
     }
   }
-
+  
   const suggestedType = (expectedNextType ?? 'OBSERVATION') as import('@/types/nodes').PlannerDirectionType
   const sourceNodeId = currentNode?.id
-
+  
   return plannedDirections.map((dir) => ({
     id: `planner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     summary_title: dir.summary_title,
@@ -1550,24 +1294,22 @@ export async function generateStepFromDirection(
   const promptBase = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
   const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
   const maxTokens = getModelOutputTokenLimit(modelName)
-
+  const aiModel = buildAiSdkModel(provider, apiKey, modelName, baseUrl)
+  
   const plannedDirection: PlannedDirection = {
     summary_title: direction.summary_title,
     direction_focus: direction.summary_title,
     search_query: direction.searchQuery,
   }
-
+  
   try {
     const exaSources = await buildExaSources(direction.searchQuery).catch(() => [])
     const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
     let lastStreamedTextContent = ''
-
-    const directionResponse = await requestAiText(
-      provider,
-      apiKey,
-      modelName,
-      baseUrl,
-      [
+    
+    const directionResponse = await streamText({
+      model: aiModel,
+      messages: [
         {
           role: 'system',
           content: 'You are a scientific research assistant. Follow the requested output format exactly.',
@@ -1577,58 +1319,57 @@ export async function generateStepFromDirection(
           content: buildDirectionPrompt(promptBase, plannedDirection, exaSources),
         },
       ],
-      0.4,
-      maxTokens,
-      {
-        onStreamingRawText: (rawText) => {
-          if (!options?.onStreamingText) {
-            return
-          }
-
-          const streamingTextContent = extractStreamingGeneratedTextContent(rawText)
-          if (!streamingTextContent || streamingTextContent === lastStreamedTextContent) {
-            return
-          }
-
+      temperature: 0.4,
+      ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
+    })
+    
+    let fullText = ''
+    const decoder = new TextDecoder()
+    
+    for await (const chunk of directionResponse.textStream) {
+      fullText += chunk
+      
+      if (options?.onStreamingText) {
+        const streamingTextContent = extractStreamingGeneratedTextContent(fullText)
+        if (streamingTextContent && streamingTextContent !== lastStreamedTextContent) {
           lastStreamedTextContent = streamingTextContent
           options.onStreamingText(streamingTextContent)
-        },
+        }
       }
-    )
-
+    }
+    
     let parsed: unknown
     try {
-      const payload = extractJsonPayload(directionResponse.text)
+      const payload = extractJsonPayload(fullText)
       parsed = JSON.parse(payload)
     } catch (parseError) {
       console.error('[AI Service] generateStepFromDirection JSON parse failed', {
         provider,
-        modelName,
-        finishReason: directionResponse.finishReason,
+        model: modelName,
         error: parseError instanceof Error ? parseError.message : String(parseError),
-        contentPreview: directionResponse.text.slice(0, 400),
+        contentPreview: fullText.slice(0, 400),
       })
       throw parseError
     }
-
+    
     const steps = toGeneratedSteps(parsed, exaSourcesById)
     const step = steps[0]
-
+    
     if (!step) {
       throw new Error('Failed to parse AI response')
     }
-
+    
     const rawItem = Array.isArray(parsed) ? parsed[0] : null
     const aiProvidedTitle =
       isRecord(rawItem) &&
       (typeof rawItem.summary_title === 'string' ||
         typeof rawItem.title === 'string' ||
         typeof rawItem.summary === 'string')
-
+    
     if (!aiProvidedTitle) {
       step.summary_title = direction.summary_title
     }
-
+    
     return expectedNextType ? { ...step, type: expectedNextType } : step
   } catch (error) {
     if (error instanceof Error) {
@@ -1672,16 +1413,15 @@ export async function generateNextSteps(
   const currentNode = ancestry[ancestry.length - 1]
   const expectedNextType = currentNode ? getExpectedNextType(currentNode.type) : null
   const promptBase = buildPrompt(ancestry, globalGoal, expectedNextType, gradedNodes)
-
+  
   try {
     const modelName = model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_OPENAI_MODEL)
     const plannerMaxTokens = getModelOutputTokenLimit(modelName)
-    const plannerResponse = await requestAiText(
-      provider,
-      apiKey,
-      modelName,
-      baseUrl,
-      [
+    const aiModel = buildAiSdkModel(provider, apiKey, modelName, baseUrl)
+    
+    const plannerResponse = await generateText({
+      model: aiModel,
+      messages: [
         {
           role: 'system',
           content: 'You are a scientific research planner. Output strict JSON only.',
@@ -1691,67 +1431,54 @@ export async function generateNextSteps(
           content: buildPlannerPrompt(ancestry, globalGoal, expectedNextType, gradedNodes),
         },
       ],
-      0.2,
-      plannerMaxTokens
-    )
+      temperature: 0.2,
+      ...(typeof plannerMaxTokens === 'number' ? { maxTokens: plannerMaxTokens } : {}),
+    })
+    
     const plannerText = plannerResponse.text
-
+    
     let plannedDirections: PlannedDirection[] | undefined
     try {
       const plannerPayload = extractJsonPayload(plannerText)
       plannedDirections = parsePlannedDirections(JSON.parse(plannerPayload))
     } catch (parseError) {
-      const plannerPayload = extractJsonPayload(plannerText)
-
-      if (plannerResponse.finishReason === 'length') {
-        const repaired = repairTruncatedJsonArray(plannerText)
-        if (repaired) {
-          try {
-            plannedDirections = parsePlannedDirections(repaired, 1)
-            console.warn('[AI Service] Planner response truncated, salvaged', plannedDirections.length, 'direction(s)')
-          } catch {
-            console.error('[AI Service] Planner truncated JSON repair failed')
-          }
+      const repaired = repairTruncatedJsonArray(plannerText)
+      if (repaired) {
+        try {
+          plannedDirections = parsePlannedDirections(repaired, 1)
+          console.warn('[AI Service] Planner response truncated, salvaged', plannedDirections.length, 'direction(s)')
+        } catch {
+          console.error('[AI Service] Planner truncated JSON repair failed')
         }
       }
-
+      
       if (!plannedDirections) {
         console.error('[AI Service] Planner JSON parse failed', {
           provider,
-          modelName,
+          model: modelName,
           plannerTemperature: 0.2,
           plannerMaxTokens,
-          plannerFinishReason: plannerResponse.finishReason,
-          plannerResponseModel: plannerResponse.responseModel,
           error: parseError instanceof Error ? parseError.message : String(parseError),
           plannerTextLength: plannerText.length,
-          plannerPayloadLength: plannerPayload.length,
-          plannerPayloadStartsWithBracket: plannerPayload.trimStart().startsWith('['),
-          plannerPayloadEndsWithBracket: plannerPayload.trimEnd().endsWith(']'),
           plannerTextPreview: plannerText.slice(0, 800),
           plannerTextTail: plannerText.slice(-160),
-          plannerPayloadPreview: plannerPayload.slice(0, 400),
-          plannerPayloadTail: plannerPayload.slice(-160),
         })
         throw parseError
       }
     }
-
+    
     const exaSourceGroups = await Promise.all(
       plannedDirections.map((direction) => buildExaSources(direction.search_query).catch(() => []))
     )
-
+    
     const generatedByDirection = await Promise.all(
       plannedDirections.map(async (direction, index) => {
         const exaSources = exaSourceGroups[index]
         const exaSourcesById = new Map(exaSources.map((source) => [source.id, source]))
         const directionMaxTokens = getModelOutputTokenLimit(modelName)
-        const directionResponse = await requestAiText(
-          provider,
-          apiKey,
-          modelName,
-          baseUrl,
-          [
+        const directionResponse = await generateText({
+          model: aiModel,
+          messages: [
             {
               role: 'system',
               content: 'You are a scientific research assistant. Follow the requested output format exactly.',
@@ -1761,64 +1488,58 @@ export async function generateNextSteps(
               content: buildDirectionPrompt(promptBase, direction, exaSources),
             },
           ],
-          0.4,
-          directionMaxTokens
-        )
+          temperature: 0.4,
+          ...(typeof directionMaxTokens === 'number' ? { maxTokens: directionMaxTokens } : {}),
+        })
+        
         const content = directionResponse.text
-
+        
         let parsed: unknown
         try {
           const directionPayload = extractJsonPayload(content)
           parsed = JSON.parse(directionPayload)
         } catch (parseError) {
-          const directionPayload = extractJsonPayload(content)
           console.error('[AI Service] Direction JSON parse failed', {
             directionIndex: index,
             provider,
-            modelName,
+            model: modelName,
             directionTemperature: 0.4,
             directionMaxTokens,
-            directionFinishReason: directionResponse.finishReason,
-            directionResponseModel: directionResponse.responseModel,
             summaryTitle: direction.summary_title,
             searchQuery: direction.search_query,
             error: parseError instanceof Error ? parseError.message : String(parseError),
             contentLength: content.length,
-            directionPayloadLength: directionPayload.length,
-            directionPayloadStartsWithBracket: directionPayload.trimStart().startsWith('['),
-            directionPayloadEndsWithBracket: directionPayload.trimEnd().endsWith(']'),
             contentPreview: content.slice(0, 800),
             contentTail: content.slice(-160),
-            directionPayloadPreview: directionPayload.slice(0, 400),
-            directionPayloadTail: directionPayload.slice(-160),
           })
           throw parseError
         }
+        
         const directionSteps = toGeneratedSteps(parsed, exaSourcesById)
         const firstStep = directionSteps[0]
-
+        
         if (!firstStep) {
           throw new Error('Failed to parse AI response')
         }
-
+        
         if (!firstStep.summary_title?.trim()) {
           firstStep.summary_title = direction.summary_title
         }
-
+        
         return firstStep
       })
     )
-
+    
     const steps = generatedByDirection.filter(Boolean)
-
+    
     if (steps.length < 3) {
       throw new Error('AI returned fewer than 3 suggestions')
     }
-
+    
     const normalizedSteps = expectedNextType
       ? steps.map((step) => ({ ...step, type: expectedNextType }))
       : steps
-
+    
     return normalizedSteps.slice(0, 3)
   } catch (error) {
     if (error instanceof Error) {
