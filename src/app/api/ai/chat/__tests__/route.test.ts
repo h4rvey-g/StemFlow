@@ -70,6 +70,8 @@ const baseRequestBody = {
   ancestry: 'Parent node: prior observation',
 }
 
+const makeHistoryItem = (role: 'user' | 'assistant', content: string) => ({ role, content })
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -143,6 +145,36 @@ describe('/api/ai/chat route', () => {
     await expect(res.json()).resolves.toEqual({ error: 'ancestry is required' })
   })
 
+  it('rejects invalid history shape', async () => {
+    const res = await POST(
+      new Request('http://localhost/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...baseRequestBody,
+          history: 'invalid-history',
+        }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'history must be an array' })
+  })
+
+  it('rejects invalid history role', async () => {
+    const res = await POST(
+      new Request('http://localhost/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...baseRequestBody,
+          history: [{ role: 'system', content: 'forbidden' }],
+        }),
+      })
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'history roles must be user or assistant' })
+  })
+
   // --- Happy-path (non-streaming) -------------------------------------------
 
   it('builds chat prompts and returns validated ChatResponse', async () => {
@@ -186,6 +218,90 @@ describe('/api/ai/chat route', () => {
     expect(callArgs?.messages?.[1]?.content).toContain('Type=OBSERVATION')
     expect(callArgs?.messages?.[1]?.content).toContain('Msg=Please improve this node.')
     expect(callArgs?.messages?.[1]?.content).toContain('Anc=Parent node: prior observation')
+  })
+
+  it('accepts history and includes it in sdkMessages order', async () => {
+    genObjMock.mockResolvedValueOnce(makeObjectResult({ mode: 'answer', answerText: 'ok' }))
+
+    const history = [
+      makeHistoryItem('user', 'Earlier user question'),
+      makeHistoryItem('assistant', 'Earlier assistant response'),
+    ]
+
+    const res = await POST(
+      new Request('http://localhost/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...baseRequestBody,
+          history,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+
+    const callArgs = genObjMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+
+    expect(callArgs?.messages).toBeDefined()
+    expect(callArgs?.messages?.[0]).toEqual(expect.objectContaining({ role: 'system' }))
+    expect(callArgs?.messages?.[1]).toEqual(history[0])
+    expect(callArgs?.messages?.[2]).toEqual(history[1])
+    expect(callArgs?.messages?.[3]).toEqual(expect.objectContaining({ role: 'user' }))
+  })
+
+  it('truncates history to most recent entries and preserves ordering', async () => {
+    genObjMock.mockResolvedValueOnce(makeObjectResult({ mode: 'answer', answerText: 'ok' }))
+
+    const history = Array.from({ length: 30 }, (_, index) =>
+      makeHistoryItem(index % 2 === 0 ? 'user' : 'assistant', `turn-${index}`)
+    )
+
+    const res = await POST(
+      new Request('http://localhost/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...baseRequestBody,
+          history,
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+
+    const callArgs = genObjMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+
+    const messages = callArgs?.messages ?? []
+    const historyMessages = messages.slice(1, -1)
+    expect(historyMessages).toHaveLength(24)
+    expect(historyMessages[0]?.content).toBe('turn-6')
+    expect(historyMessages[23]?.content).toBe('turn-29')
+  })
+
+  it('truncates each history content entry to 5000 chars', async () => {
+    genObjMock.mockResolvedValueOnce(makeObjectResult({ mode: 'answer', answerText: 'ok' }))
+
+    const longContent = 'x'.repeat(5100)
+    const res = await POST(
+      new Request('http://localhost/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...baseRequestBody,
+          history: [makeHistoryItem('assistant', longContent)],
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+
+    const callArgs = genObjMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+
+    expect(callArgs?.messages?.[1]?.content).toHaveLength(5000)
   })
 
   it('supports gemini provider', async () => {

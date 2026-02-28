@@ -14,6 +14,7 @@ import { useStore } from '@/stores/useStore'
 import { useChatStore } from '@/stores/useChatStore'
 import type { ChatResponse } from '@/types/chat'
 import type { ProjectStore } from '@/stores/useProjectStore'
+import * as chatDb from '@/lib/db/chat-db'
 
 // ---------------------------------------------------------------------------
 // Browser API polyfills required for React Flow in JSDOM
@@ -79,9 +80,200 @@ vi.mock('@/lib/api-keys', () => ({
 
 /** Stub out Dexie chat persistence – not relevant to UI integration flow */
 vi.mock('@/lib/db/chat-db', () => ({
+  __resetChatDbMock: vi.fn(),
   getThread: vi.fn().mockResolvedValue(undefined),
   saveThread: vi.fn().mockResolvedValue(undefined),
+  createThreadV2: vi.fn(),
+  listThreadsV2: vi.fn(),
+  getActiveThreadId: vi.fn(),
+  setActiveThreadId: vi.fn(),
+  appendTurn: vi.fn(),
+  appendVariant: vi.fn(),
+  updateVariant: vi.fn(),
+  listTurnsWithVariants: vi.fn(),
+  setSelectedVariant: vi.fn(),
+  setProposalStatus: vi.fn(),
+  updateThreadTitle: vi.fn(),
 }))
+
+type MockThread = {
+  id: string
+  nodeId: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
+type MockTurn = {
+  id: string
+  threadId: string
+  seq: number
+  userText: string
+  userCreatedAt: number
+  selectedVariantOrdinal: number | null
+}
+
+type MockVariant = {
+  id: string
+  turnId: string
+  ordinal: number
+  status: 'streaming' | 'complete' | 'error' | 'aborted'
+  mode: 'answer' | 'proposal'
+  contentText: string
+  proposal?: {
+    title: string
+    content: string
+    rationale: string
+    confidence?: number
+    diffSummary?: string
+  }
+  proposalStatus?: 'pending' | 'accepted' | 'rejected'
+  createdAt: number
+  updatedAt: number
+}
+
+const chatDbState: {
+  threads: MockThread[]
+  turns: MockTurn[]
+  variants: MockVariant[]
+  activeByNode: Record<string, string>
+  counter: number
+} = {
+  threads: [],
+  turns: [],
+  variants: [],
+  activeByNode: {},
+  counter: 0,
+}
+
+const nextId = (prefix: string) => {
+  chatDbState.counter += 1
+  return `${prefix}-${chatDbState.counter}`
+}
+
+const resetChatDbState = () => {
+  chatDbState.threads = []
+  chatDbState.turns = []
+  chatDbState.variants = []
+  chatDbState.activeByNode = {}
+  chatDbState.counter = 0
+}
+
+const setupChatDbMock = () => {
+  const chatDbMock = chatDb as unknown as {
+    __resetChatDbMock: ReturnType<typeof vi.fn>
+    createThreadV2: ReturnType<typeof vi.fn>
+    listThreadsV2: ReturnType<typeof vi.fn>
+    getActiveThreadId: ReturnType<typeof vi.fn>
+    setActiveThreadId: ReturnType<typeof vi.fn>
+    appendTurn: ReturnType<typeof vi.fn>
+    appendVariant: ReturnType<typeof vi.fn>
+    updateVariant: ReturnType<typeof vi.fn>
+    listTurnsWithVariants: ReturnType<typeof vi.fn>
+    setSelectedVariant: ReturnType<typeof vi.fn>
+    setProposalStatus: ReturnType<typeof vi.fn>
+    updateThreadTitle: ReturnType<typeof vi.fn>
+  }
+
+  chatDbMock.__resetChatDbMock.mockImplementation(() => {
+    resetChatDbState()
+  })
+
+  chatDbMock.createThreadV2.mockImplementation(async (nodeId: string, title?: string) => {
+    const now = Date.now()
+    const existingCount = chatDbState.threads.filter((thread) => thread.nodeId === nodeId).length
+    const thread: MockThread = {
+      id: nextId('thread'),
+      nodeId,
+      title: title ?? `Chat ${existingCount + 1}`,
+      createdAt: now,
+      updatedAt: now,
+    }
+    chatDbState.threads.push(thread)
+    return thread
+  })
+
+  chatDbMock.listThreadsV2.mockImplementation(async (nodeId: string) =>
+    chatDbState.threads
+      .filter((thread) => thread.nodeId === nodeId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  )
+
+  chatDbMock.getActiveThreadId.mockImplementation(async (nodeId: string) => chatDbState.activeByNode[nodeId])
+
+  chatDbMock.setActiveThreadId.mockImplementation(async (nodeId: string, threadId: string) => {
+    chatDbState.activeByNode[nodeId] = threadId
+  })
+
+  chatDbMock.appendTurn.mockImplementation(async (threadId: string, userText: string) => {
+    const seq = chatDbState.turns.filter((turn) => turn.threadId === threadId).length
+    const turn: MockTurn = {
+      id: nextId('turn'),
+      threadId,
+      seq,
+      userText,
+      userCreatedAt: Date.now(),
+      selectedVariantOrdinal: null,
+    }
+    chatDbState.turns.push(turn)
+    return turn
+  })
+
+  chatDbMock.appendVariant.mockImplementation(async (turnId: string, data: Partial<MockVariant>) => {
+    const existing = chatDbState.variants.filter((variant) => variant.turnId === turnId)
+    const ordinal = existing.length > 0 ? Math.max(...existing.map((variant) => variant.ordinal)) + 1 : 0
+    const variant: MockVariant = {
+      id: nextId('variant'),
+      turnId,
+      ordinal,
+      status: (data.status as MockVariant['status']) ?? 'streaming',
+      mode: (data.mode as MockVariant['mode']) ?? 'answer',
+      contentText: data.contentText ?? '',
+      proposal: data.proposal,
+      proposalStatus: data.proposalStatus,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    chatDbState.variants.push(variant)
+    return variant
+  })
+
+  chatDbMock.updateVariant.mockImplementation(async (variantId: string, patch: Partial<MockVariant>) => {
+    chatDbState.variants = chatDbState.variants.map((variant) =>
+      variant.id === variantId ? { ...variant, ...patch, updatedAt: Date.now() } : variant
+    )
+  })
+
+  chatDbMock.listTurnsWithVariants.mockImplementation(async (threadId: string) => {
+    const turns = chatDbState.turns
+      .filter((turn) => turn.threadId === threadId)
+      .sort((a, b) => a.seq - b.seq)
+    return turns.map((turn) => ({
+      turn,
+      variants: chatDbState.variants
+        .filter((variant) => variant.turnId === turn.id)
+        .sort((a, b) => a.ordinal - b.ordinal),
+    }))
+  })
+
+  chatDbMock.setSelectedVariant.mockImplementation(async (turnId: string, ordinal: number) => {
+    chatDbState.turns = chatDbState.turns.map((turn) =>
+      turn.id === turnId ? { ...turn, selectedVariantOrdinal: ordinal } : turn
+    )
+  })
+
+  chatDbMock.setProposalStatus.mockImplementation(async (variantId: string, status: MockVariant['proposalStatus']) => {
+    chatDbState.variants = chatDbState.variants.map((variant) =>
+      variant.id === variantId ? { ...variant, proposalStatus: status } : variant
+    )
+  })
+
+  chatDbMock.updateThreadTitle.mockImplementation(async (threadId: string, title: string) => {
+    chatDbState.threads = chatDbState.threads.map((thread) =>
+      thread.id === threadId ? { ...thread, title, updatedAt: Date.now() } : thread
+    )
+  })
+}
 
 /**
  * Mock useStore with:
@@ -217,6 +409,8 @@ const mockFetchResponse = (body: ChatResponse, status = 200) => {
 describe('Node Chat Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setupChatDbMock()
+    ;(chatDb as unknown as { __resetChatDbMock: () => void }).__resetChatDbMock()
     // Reset ephemeral chat store so no stale pending-proposal bleeds into next test
     useChatStore.getState().closeChat()
   })
@@ -239,6 +433,34 @@ describe('Node Chat Integration', () => {
 
     // Panel header identifies the node
     expect(screen.getByText(/Node obs-1/)).toBeInTheDocument()
+  })
+
+  it('creates and activates a default thread on first send when chat opens without existing threads', async () => {
+    render(<Page />)
+    openChatFor('obs-1')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('node-chat-panel')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Ask about this node or request a revision...')
+    fireEvent.change(input, { target: { value: 'Bootstrap first thread' } })
+
+    mockFetchResponse({ mode: 'answer', answerText: 'Thread initialized.' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Thread initialized.')).toBeInTheDocument()
+    })
+
+    const createThreadV2Mock = (chatDb as unknown as { createThreadV2: ReturnType<typeof vi.fn> })
+      .createThreadV2
+    const setActiveThreadIdMock = (chatDb as unknown as {
+      setActiveThreadId: ReturnType<typeof vi.fn>
+    }).setActiveThreadId
+
+    expect(createThreadV2Mock).toHaveBeenCalledWith('obs-1')
+    expect(setActiveThreadIdMock).toHaveBeenCalledWith('obs-1', expect.stringMatching(/^thread-/))
   })
 
   it('closes chat panel when close button is clicked', async () => {

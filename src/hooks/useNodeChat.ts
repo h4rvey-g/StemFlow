@@ -1,20 +1,107 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
+import { generateId } from '@/lib/uuid'
 import { loadApiKeys } from '@/lib/api-keys'
 import { validateChatResponse } from '@/lib/ai/chat-schemas'
 import type { AiProvider } from '@/lib/ai/types'
 import { AiError as AiErrorClass } from '@/lib/ai/types'
-import { getThread, saveThread } from '@/lib/db/chat-db'
+import {
+  appendTurn,
+  appendVariant,
+  createThreadV2,
+  getActiveThreadId,
+  listThreadsV2,
+  listTurnsWithVariants,
+  setActiveThreadId,
+  setProposalStatus,
+  setSelectedVariant as setSelectedVariantInDb,
+  updateVariant,
+  updateThreadTitle,
+} from '@/lib/db/chat-db'
 import { formatAncestryForPrompt, getNodeAncestry } from '@/lib/graph'
 import { loadPromptSettings } from '@/lib/prompt-settings'
-import { useChatStore } from '@/stores/useChatStore'
 import { useStore } from '@/stores/useStore'
 import type { ChatMessage, ProposalPayload, ChatResponse } from '@/types/chat'
 
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022'
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
-const MAX_MESSAGES_PER_THREAD = 50
+const HISTORY_TURN_LIMIT = 12
+const HISTORY_CONTENT_LIMIT = 5000
+const STREAM_PERSIST_MS = 750
+
+type VariantStatus = 'streaming' | 'complete' | 'error' | 'aborted'
+type VariantMode = 'answer' | 'proposal'
+type ProposalStatus = 'pending' | 'accepted' | 'rejected'
+
+interface HookVariant {
+  variantId: string
+  ordinal: number
+  status: VariantStatus
+  mode: VariantMode
+  contentText: string
+  proposal?: ProposalPayload
+  proposalStatus?: ProposalStatus
+}
+
+interface HookTurn {
+  turnId: string
+  seq: number
+  userText: string
+  userCreatedAt: number
+  selectedVariantOrdinal: number | null
+  variants: HookVariant[]
+  viewingVariantOrdinal: number | null
+}
+
+interface HookThread {
+  id: string
+  title: string
+  updatedAt: number
+}
+
+interface AcceptRejectArgs {
+  variantId: string
+}
+
+interface SetSelectedVariantArgs {
+  threadId: string
+  turnId: string
+  ordinal: number
+}
+
+interface SetViewingVariantArgs {
+  threadId: string
+  turnId: string
+  ordinal: number
+}
+
+interface RegenerateVariantArgs {
+  threadId: string
+  turnId: string
+  fromVariantId?: string
+}
+
+interface UseNodeChatReturn {
+  threads: HookThread[]
+  activeThreadId: string
+  setActiveThread: (threadId: string) => Promise<void>
+  startNewThread: () => Promise<string>
+  turns: HookTurn[]
+  sendMessage: (text: string) => Promise<void>
+  regenerateVariant: (args: RegenerateVariantArgs) => Promise<void>
+  setViewingVariant: (args: SetViewingVariantArgs) => void
+  setSelectedVariant: (args: SetSelectedVariantArgs) => Promise<void>
+  acceptProposal: (args?: AcceptRejectArgs) => Promise<void>
+  rejectProposal: (args?: AcceptRejectArgs) => Promise<void>
+  cancel: () => void
+  isLoading: boolean
+  error: string | null
+  messages: ChatMessage[]
+  pendingProposal: {
+    proposalId: string
+    payload: ProposalPayload
+  } | null
+}
 
 const resolveProvider = (
   provider: string | null,
@@ -38,8 +125,7 @@ const toApiKey = (
   provider: AiProvider,
   keys: Awaited<ReturnType<typeof loadApiKeys>>
 ): string => {
-  if (provider === 'openai' || provider === 'openai-compatible')
-    return keys.openaiKey ?? ''
+  if (provider === 'openai' || provider === 'openai-compatible') return keys.openaiKey ?? ''
   if (provider === 'anthropic') return keys.anthropicKey ?? ''
   return keys.geminiKey ?? ''
 }
@@ -48,107 +134,237 @@ const toModel = (
   provider: AiProvider,
   keys: Awaited<ReturnType<typeof loadApiKeys>>
 ): string => {
-  if (provider === 'openai' || provider === 'openai-compatible')
+  if (provider === 'openai' || provider === 'openai-compatible') {
     return keys.openaiModel ?? DEFAULT_OPENAI_MODEL
-  if (provider === 'anthropic')
-    return keys.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL
+  }
+  if (provider === 'anthropic') return keys.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL
   return keys.geminiModel ?? DEFAULT_GEMINI_MODEL
 }
 
-const truncateMessages = (messages: ChatMessage[]): ChatMessage[] => {
-  if (messages.length <= MAX_MESSAGES_PER_THREAD) return messages
-  return messages.slice(-MAX_MESSAGES_PER_THREAD)
+const truncateToHistoryLimit = (value: string): string => {
+  if (value.length <= HISTORY_CONTENT_LIMIT) return value
+  return value.slice(0, HISTORY_CONTENT_LIMIT)
 }
 
-interface UseNodeChatReturn {
-  messages: ChatMessage[]
-  isLoading: boolean
-  error: string | null
-  pendingProposal: {
-    proposalId: string
-    payload: ProposalPayload
-  } | null
-  sendMessage: (text: string) => Promise<void>
-  acceptProposal: () => Promise<void>
-  rejectProposal: () => void
-  cancel: () => void
+const formatVariantForHistory = (variant: HookVariant): string => {
+  if (variant.mode === 'answer') {
+    return truncateToHistoryLimit(variant.contentText)
+  }
+
+  const proposal = variant.proposal
+  if (!proposal) return truncateToHistoryLimit(variant.contentText)
+
+  return truncateToHistoryLimit(
+    [
+      'Proposal',
+      `Title: ${proposal.title}`,
+      `Rationale: ${proposal.rationale}`,
+      `Content: ${proposal.content}`,
+      `DiffSummary: ${proposal.diffSummary ?? ''}`,
+    ].join('\n')
+  )
 }
 
-/**
- * Hook for per-node AI chat with proposal handling
- * @param nodeId - Node ID to chat about
- * @returns Chat state and actions
- */
+const toHookTurns = (source: Awaited<ReturnType<typeof listTurnsWithVariants>>): HookTurn[] =>
+  source.map(({ turn, variants }) => ({
+    turnId: turn.id,
+    seq: turn.seq,
+    userText: turn.userText,
+    userCreatedAt: turn.userCreatedAt,
+    selectedVariantOrdinal: turn.selectedVariantOrdinal,
+    viewingVariantOrdinal: null,
+    variants: variants.map((variant) => ({
+      variantId: variant.id,
+      ordinal: variant.ordinal,
+      status: variant.status,
+      mode: variant.mode,
+      contentText: variant.contentText,
+      proposal: variant.proposal,
+      proposalStatus: variant.proposalStatus,
+    })),
+  }))
+
+const findSelectedVariant = (turn: HookTurn): HookVariant | null => {
+  if (turn.selectedVariantOrdinal === null) return null
+  return turn.variants.find((variant) => variant.ordinal === turn.selectedVariantOrdinal) ?? null
+}
+
+const buildHistory = (turns: HookTurn[]) => {
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  const limitedTurns = turns.slice(-HISTORY_TURN_LIMIT)
+
+  for (const turn of limitedTurns) {
+    history.push({ role: 'user', content: truncateToHistoryLimit(turn.userText) })
+    const selectedVariant = findSelectedVariant(turn)
+    if (selectedVariant) {
+      history.push({
+        role: 'assistant',
+        content: formatVariantForHistory(selectedVariant),
+      })
+    }
+  }
+
+  return history
+}
+
+const deriveLegacyMessages = (nodeId: string, turns: HookTurn[]): ChatMessage[] => {
+  const messages: ChatMessage[] = []
+
+  for (const turn of turns) {
+    messages.push({
+      id: `user-${turn.turnId}`,
+      nodeId,
+      role: 'user',
+      content: turn.userText,
+      timestamp: turn.userCreatedAt,
+    })
+
+    const viewingVariant =
+      turn.viewingVariantOrdinal === null
+        ? null
+        : turn.variants.find((variant) => variant.ordinal === turn.viewingVariantOrdinal) ?? null
+    const selectedVariant = findSelectedVariant(turn)
+    const latestVariant = turn.variants.at(-1) ?? null
+    const shownVariant = viewingVariant ?? selectedVariant ?? latestVariant
+
+    if (shownVariant) {
+      messages.push({
+        id: shownVariant.variantId,
+        nodeId,
+        role: 'assistant',
+        content: shownVariant.contentText,
+        timestamp: Date.now(),
+        mode: shownVariant.mode,
+        proposalId: shownVariant.mode === 'proposal' ? shownVariant.variantId : undefined,
+      })
+    }
+  }
+
+  return messages
+}
+
 export function useNodeChat(nodeId: string): UseNodeChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [threads, setThreads] = useState<HookThread[]>([])
+  const [activeThreadId, setActiveThreadIdState] = useState('')
+  const [turns, setTurns] = useState<HookTurn[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const nodeIdRef = useRef(nodeId)
+  const abortRef = useRef<AbortController | null>(null)
 
-  const pendingProposal = useChatStore((s) =>
-    s.pendingProposal?.nodeId === nodeId ? s.pendingProposal : null
+  const refreshThreads = useCallback(async () => {
+    const fetched = await listThreadsV2(nodeId)
+    setThreads(
+      fetched.map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        updatedAt: thread.updatedAt,
+      }))
+    )
+    return fetched
+  }, [nodeId])
+
+  const loadThreadTurns = useCallback(
+    async (threadId: string) => {
+      const data = await listTurnsWithVariants(threadId)
+      setTurns(toHookTurns(data))
+    },
+    []
   )
-  const setPendingProposal = useChatStore((s) => s.setPendingProposal)
-  const clearPendingProposal = useChatStore((s) => s.clearPendingProposal)
 
-  // Load thread on mount or node change
   useEffect(() => {
     nodeIdRef.current = nodeId
 
-    const loadThread = async () => {
+    const run = async () => {
       try {
-        const thread = await getThread(nodeId)
-        if (thread && nodeIdRef.current === nodeId) {
-          setMessages(truncateMessages(thread.messages))
-        } else if (nodeIdRef.current === nodeId) {
-          setMessages([])
+        const fetchedThreads = await refreshThreads()
+        if (nodeIdRef.current !== nodeId) return
+
+        const storedActiveThreadId = await getActiveThreadId(nodeId)
+        const availableThreadId =
+          storedActiveThreadId && fetchedThreads.some((thread) => thread.id === storedActiveThreadId)
+            ? storedActiveThreadId
+            : fetchedThreads[0]?.id ?? ''
+
+        setActiveThreadIdState(availableThreadId)
+
+        if (availableThreadId) {
+          await setActiveThreadId(nodeId, availableThreadId)
+          if (nodeIdRef.current === nodeId) {
+            await loadThreadTurns(availableThreadId)
+          }
+        } else {
+          setTurns([])
         }
       } catch (caught) {
-        if (nodeIdRef.current === nodeId) {
-          const message =
-            caught instanceof Error ? caught.message : 'Failed to load chat thread'
-          setError(message)
-        }
+        if (nodeIdRef.current !== nodeId) return
+        setError(caught instanceof Error ? caught.message : 'Failed to load chat')
       }
     }
 
-    void loadThread()
+    void run()
 
     return () => {
-      const controller = abortRef.current
-      if (controller) {
-        controller.abort()
-      }
+      abortRef.current?.abort()
     }
-  }, [nodeId])
+  }, [loadThreadTurns, nodeId, refreshThreads])
 
-  const sendMessage = useCallback(
-    async (text: string) => {
-      const trimmedText = text.trim()
-      if (!trimmedText) return
+  const ensureActiveThread = useCallback(async (): Promise<string> => {
+    if (activeThreadId) return activeThreadId
 
+    const created = await createThreadV2(nodeId)
+    await setActiveThreadId(nodeId, created.id)
+    setActiveThreadIdState(created.id)
+    await refreshThreads()
+    setTurns([])
+    return created.id
+  }, [activeThreadId, nodeId, refreshThreads])
+
+  const patchVariantInState = useCallback(
+    (turnId: string, variantId: string, patch: Partial<HookVariant>) => {
+      setTurns((current) =>
+        current.map((turn) => {
+          if (turn.turnId !== turnId) return turn
+          return {
+            ...turn,
+            variants: turn.variants.map((variant) =>
+              variant.variantId === variantId ? { ...variant, ...patch } : variant
+            ),
+          }
+        })
+      )
+    },
+    []
+  )
+
+  const executeGeneration = useCallback(
+    async (args: {
+      threadId: string
+      turnId: string
+      variantId: string
+      variantOrdinal: number
+      selectForContext: boolean
+      message: string
+      history: Array<{ role: 'user' | 'assistant'; content: string }>
+    }) => {
+      const generationId = generateId()
+      const controller = new AbortController()
+      abortRef.current = controller
       setIsLoading(true)
       setError(null)
 
-      const userMessage: ChatMessage = {
-        id: `msg-${Date.now()}-user`,
-        nodeId,
-        role: 'user',
-        content: trimmedText,
-        timestamp: Date.now(),
+      let latestChatResponse: Partial<ChatResponse> = {}
+      let latestContent = ''
+      let lastPersistedAt = 0
+
+      const persistPartial = async (force = false) => {
+        const now = Date.now()
+        if (!force && now - lastPersistedAt < STREAM_PERSIST_MS) {
+          return
+        }
+        await updateVariant(args.variantId, { contentText: latestContent })
+        lastPersistedAt = now
       }
-
-      setMessages((curr) => truncateMessages([...curr, userMessage]))
-
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      // Set 30s timeout for stream
-      const timeoutId = setTimeout(() => {
-        controller.abort()
-        setError('Stream timeout after 30 seconds')
-      }, 30000)
 
       try {
         const keys = await loadApiKeys()
@@ -157,22 +373,16 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
         const model = toModel(provider, keys)
 
         if (!apiKey) {
-          throw new AiErrorClass(
-            'No API key found. Please configure settings.',
-            provider
-          )
+          throw new AiErrorClass('No API key found. Please configure settings.', provider)
         }
 
         const storeState = useStore.getState()
-        const node = storeState.nodes.find((n) => n.id === nodeId)
-        if (!node) {
-          throw new Error('Node not found')
-        }
+        const node = storeState.nodes.find((item) => item.id === nodeId)
+        if (!node) throw new Error('Node not found')
 
         const ancestry = getNodeAncestry(nodeId, storeState.nodes, storeState.edges)
         const formattedAncestry = formatAncestryForPrompt(ancestry)
         const promptSettings = loadPromptSettings()
-
         const shouldStream = keys.aiStreamingEnabled === true
 
         const response = await fetch('/api/ai/chat', {
@@ -185,45 +395,26 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             baseUrl: keys.openaiBaseUrl ?? undefined,
             nodeId,
             nodeType: node.type,
-            message: trimmedText,
+            message: args.message,
             nodeContent: node.data.text_content,
             ancestry: formattedAncestry,
+            history: args.history,
             chatSystemPrompt: promptSettings.chatSystemPrompt,
             chatUserMessageTemplate: promptSettings.chatUserMessageTemplate,
             stream: shouldStream,
+            generationId,
           }),
           signal: controller.signal,
         })
 
         if (!response.ok) {
-          const errorData = (await response.json().catch(() => ({}))) as {
-            error?: string
-          }
-          throw new Error(errorData.error || `Request failed: ${response.status}`)
+          const payload = (await response.json().catch(() => ({}))) as { error?: string }
+          throw new Error(payload.error || `Request failed: ${response.status}`)
         }
 
-        const contentType = response.headers.get('content-type') || ''
-        const isStream = contentType.includes('text/plain')
-
-        let chatResponseText: string
-        let assistantMessageId: string
+        const isStream = (response.headers.get('content-type') || '').includes('text/plain')
 
         if (isStream && response.body) {
-          // Streaming path: handle newline-delimited JSON chunks
-          assistantMessageId = `msg-${Date.now()}-assistant`
-          let latestChatResponse: Partial<ChatResponse> = {}
-
-          // Create initial assistant message
-          const initialAssistantMessage: ChatMessage = {
-            id: assistantMessageId,
-            nodeId,
-            role: 'assistant',
-            content: '',
-            timestamp: Date.now(),
-          }
-
-          setMessages((curr) => truncateMessages([...curr, initialAssistantMessage]))
-
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
@@ -232,251 +423,427 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             while (true) {
               const { value, done } = await reader.read()
               if (done) break
-              if (value) {
-                buffer += decoder.decode(value, { stream: true })
+              if (!value) continue
 
-                // Split by newlines and process complete JSON objects
-                const lines = buffer.split('\n')
-                buffer = lines[lines.length - 1] // Keep incomplete line in buffer
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines[lines.length - 1] ?? ''
 
-                for (let i = 0; i < lines.length - 1; i++) {
-                  const line = lines[i].trim()
-                  if (!line) continue
+              for (let index = 0; index < lines.length - 1; index += 1) {
+                const line = lines[index]?.trim()
+                if (!line) continue
 
-                  try {
-                    const chunk = JSON.parse(line) as Partial<ChatResponse>
-                    latestChatResponse = { ...latestChatResponse, ...chunk }
-
-                    // Update message content based on response mode
-                    const displayContent =
-                      latestChatResponse.mode === 'answer' && latestChatResponse.answerText
-                        ? latestChatResponse.answerText
-                        : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
+                try {
+                  const chunk = JSON.parse(line) as Partial<ChatResponse>
+                  latestChatResponse = { ...latestChatResponse, ...chunk }
+                  latestContent =
+                    latestChatResponse.mode === 'answer' && latestChatResponse.answerText
+                      ? latestChatResponse.answerText
+                      : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
                         ? latestChatResponse.proposal.content
                         : ''
-
-                    setMessages((curr) =>
-                      curr.map((msg) =>
-                        msg.id === assistantMessageId
-                          ? { ...msg, content: displayContent }
-                          : msg
-                      )
-                    )
-                  } catch (parseError) {
-                    // Skip malformed JSON lines
-                    console.warn('Failed to parse JSON chunk:', line, parseError)
+                  patchVariantInState(args.turnId, args.variantId, {
+                    contentText: latestContent,
+                    mode:
+                      latestChatResponse.mode === 'proposal' || latestChatResponse.mode === 'answer'
+                        ? latestChatResponse.mode
+                        : undefined,
+                  })
+                  await persistPartial(false)
+                  } catch {
+                    continue
                   }
-                }
               }
             }
-            // Flush any remaining bytes
+
             buffer += decoder.decode()
             if (buffer.trim()) {
               try {
                 const chunk = JSON.parse(buffer) as Partial<ChatResponse>
                 latestChatResponse = { ...latestChatResponse, ...chunk }
-              } catch (parseError) {
-                console.warn('Failed to parse final JSON chunk:', buffer, parseError)
+              } catch {
+                buffer = ''
               }
             }
           } finally {
             reader.releaseLock()
           }
+        } else {
+          latestChatResponse = (await response.json()) as Partial<ChatResponse>
+          latestContent =
+            latestChatResponse.mode === 'answer' && latestChatResponse.answerText
+              ? latestChatResponse.answerText
+              : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
+                ? latestChatResponse.proposal.content
+                : ''
+          patchVariantInState(args.turnId, args.variantId, { contentText: latestContent })
+        }
 
-          // Validate final accumulated response
-          const validated = validateChatResponse(latestChatResponse)
-          if (!validated.success) {
-            throw new Error(
-              validated.error?.message || 'Invalid response from AI'
-            )
-          }
-          const chatResponse = validated.data
-          if (!chatResponse) {
-            throw new Error('No data in validated response')
-          }
-          // Update final message with mode and proposal metadata
-          const finalContent =
-            chatResponse.mode === 'answer'
-              ? chatResponse.answerText
-              : chatResponse.proposal.content
-          const proposalId = chatResponse.mode === 'proposal' ? `proposal-${Date.now()}` : undefined
-          setMessages((curr) =>
-            curr.map((msg) =>
-              msg.id === assistantMessageId
-                ? {
-                    ...msg,
-                    content: finalContent,
-                    mode: chatResponse.mode,
-                    proposalId,
-                  }
-                : msg
+        const validated = validateChatResponse(latestChatResponse)
+        if (!validated.success || !validated.data) {
+          throw new Error(validated.error?.message || 'Invalid response from AI')
+        }
+
+        const responseData = validated.data
+        const finalMode = responseData.mode
+        const finalContent =
+          finalMode === 'answer' ? responseData.answerText : responseData.proposal.content
+
+        patchVariantInState(args.turnId, args.variantId, {
+          mode: finalMode,
+          status: 'complete',
+          contentText: finalContent,
+          proposal: finalMode === 'proposal' ? responseData.proposal : undefined,
+          proposalStatus: finalMode === 'proposal' ? 'pending' : undefined,
+        })
+
+        await updateVariant(args.variantId, {
+          status: 'complete',
+          contentText: finalContent,
+          proposal: finalMode === 'proposal' ? responseData.proposal : undefined,
+          proposalStatus: finalMode === 'proposal' ? 'pending' : undefined,
+        })
+
+        if (args.selectForContext) {
+          await setSelectedVariantInDb(args.turnId, args.variantOrdinal)
+          setTurns((current) =>
+            current.map((turn) =>
+              turn.turnId === args.turnId
+                ? { ...turn, selectedVariantOrdinal: args.variantOrdinal }
+                : turn
             )
           )
-          if (chatResponse.mode === 'proposal' && proposalId) {
-            setPendingProposal({
-              nodeId,
-              proposalId,
-              payload: chatResponse.proposal,
-            })
-          }
-          // Save final thread
-          const finalMessages = await new Promise<ChatMessage[]>((resolve) => {
-            setMessages((curr) => {
-              const truncated = truncateMessages(curr)
-              resolve(truncated)
-              return truncated
-            })
-          })
-          await saveThread({
-            nodeId,
-            messages: finalMessages,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          })
-        } else {
-          // Non-streaming JSON path (fallback for tests or when streaming disabled)
-          const json = (await response.json()) as unknown
-          const validated = validateChatResponse(json)
-          if (!validated.success) {
-            throw new Error(
-              validated.error?.message || 'Invalid response from AI'
-            )
-          }
-          const chatResponse = validated.data
-          if (!chatResponse) {
-            throw new Error('No data in validated response')
-          }
-          const assistantMessage: ChatMessage = {
-            id: `msg-${Date.now()}-assistant`,
-            nodeId,
-            role: 'assistant',
-            content:
-              chatResponse.mode === 'answer'
-                ? chatResponse.answerText
-                : chatResponse.proposal.content,
-            timestamp: Date.now(),
-            mode: chatResponse.mode,
-          }
-          if (chatResponse.mode === 'proposal') {
-            const proposalId = `proposal-${Date.now()}`
-            assistantMessage.proposalId = proposalId
-            setPendingProposal({
-              nodeId,
-              proposalId,
-              payload: chatResponse.proposal,
-            })
-          }
-          const updatedMessages = truncateMessages([...messages, userMessage, assistantMessage])
-          setMessages(updatedMessages)
-          await saveThread({
-            nodeId,
-            messages: updatedMessages,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          })
-          return
         }
       } catch (caught) {
         if (controller.signal.aborted) {
+          await updateVariant(args.variantId, {
+            status: 'aborted',
+            contentText: latestContent,
+          })
+          patchVariantInState(args.turnId, args.variantId, {
+            status: 'aborted',
+            contentText: latestContent,
+          })
           return
         }
 
-        const message =
-          caught instanceof Error ? caught.message : 'Failed to send message'
-        setError(message)
+        await updateVariant(args.variantId, {
+          status: 'error',
+          contentText: latestContent,
+        })
+        patchVariantInState(args.turnId, args.variantId, {
+          status: 'error',
+          contentText: latestContent,
+        })
+
+        setError(caught instanceof Error ? caught.message : 'Failed to send message')
       } finally {
-        clearTimeout(timeoutId)
+        await persistPartial(true)
         if (abortRef.current === controller) {
           abortRef.current = null
         }
         setIsLoading(false)
+        await refreshThreads()
       }
     },
-    [nodeId, messages, setPendingProposal]
+    [nodeId, patchVariantInState, refreshThreads]
   )
 
-  const acceptProposal = useCallback(async () => {
-    if (!pendingProposal) return
+  const setActiveThread = useCallback(
+    async (threadId: string) => {
+      if (!threadId) return
+      await setActiveThreadId(nodeId, threadId)
+      setActiveThreadIdState(threadId)
+      await loadThreadTurns(threadId)
+    },
+    [loadThreadTurns, nodeId]
+  )
 
-    try {
-      const { payload } = pendingProposal
+  const startNewThread = useCallback(async () => {
+    const created = await createThreadV2(nodeId)
+    await setActiveThreadId(nodeId, created.id)
+    setActiveThreadIdState(created.id)
+    setTurns([])
+    await refreshThreads()
+    return created.id
+  }, [nodeId, refreshThreads])
 
-      useStore.getState().updateNodeData(nodeId, {
-        text_content: payload.content,
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+
+      const threadId = await ensureActiveThread()
+      const priorTurns = turns
+      const history = buildHistory(priorTurns)
+
+      const newTurn = await appendTurn(threadId, trimmed)
+
+      setTurns((current) => [
+        ...current,
+        {
+          turnId: newTurn.id,
+          seq: newTurn.seq,
+          userText: newTurn.userText,
+          userCreatedAt: newTurn.userCreatedAt,
+          selectedVariantOrdinal: null,
+          viewingVariantOrdinal: null,
+          variants: [],
+        },
+      ])
+
+      if (newTurn.seq === 0) {
+        const title = trimmed.slice(0, 32).trim()
+        if (title) {
+          await updateThreadTitle(threadId, title)
+        }
+      }
+
+      const assistantVariant = await appendVariant(newTurn.id, {
+        status: 'streaming',
+        mode: 'answer',
+        contentText: '',
       })
 
-      clearPendingProposal()
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.turnId === newTurn.id
+            ? {
+                ...turn,
+                selectedVariantOrdinal: assistantVariant.ordinal,
+                viewingVariantOrdinal: assistantVariant.ordinal,
+                variants: [
+                  ...turn.variants,
+                  {
+                    variantId: assistantVariant.id,
+                    ordinal: assistantVariant.ordinal,
+                    status: assistantVariant.status,
+                    mode: assistantVariant.mode,
+                    contentText: assistantVariant.contentText,
+                    proposal: assistantVariant.proposal,
+                    proposalStatus: assistantVariant.proposalStatus,
+                  },
+                ],
+              }
+            : turn
+        )
+      )
 
-      const updatedMessages = truncateMessages(messages.map((msg) =>
-        msg.proposalId === pendingProposal.proposalId
-          ? { ...msg, mode: 'answer' as const }
-          : msg
-      ))
-      setMessages(updatedMessages)
-
-      await saveThread({
-        nodeId,
-        messages: updatedMessages,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+      await executeGeneration({
+        threadId,
+        turnId: newTurn.id,
+        variantId: assistantVariant.id,
+        variantOrdinal: assistantVariant.ordinal,
+        selectForContext: true,
+        message: trimmed,
+        history,
       })
-    } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : 'Failed to accept proposal'
-      setError(message)
+    },
+    [ensureActiveThread, executeGeneration, turns]
+  )
+
+  const regenerateVariant = useCallback(
+    async ({ threadId, turnId }: RegenerateVariantArgs) => {
+      let targetTurns = turns
+      if (threadId !== activeThreadId) {
+        const loaded = await listTurnsWithVariants(threadId)
+        targetTurns = toHookTurns(loaded)
+      }
+
+      const targetTurn = targetTurns.find((turn) => turn.turnId === turnId)
+      if (!targetTurn) {
+        setError('Target turn not found')
+        return
+      }
+
+      const history = buildHistory(targetTurns.filter((turn) => turn.seq < targetTurn.seq))
+      const variant = await appendVariant(turnId, {
+        status: 'streaming',
+        mode: 'answer',
+        contentText: '',
+      })
+
+      if (threadId === activeThreadId) {
+        setTurns((current) =>
+          current.map((turn) =>
+            turn.turnId === turnId
+              ? {
+                  ...turn,
+                  viewingVariantOrdinal: variant.ordinal,
+                  variants: [
+                    ...turn.variants,
+                    {
+                      variantId: variant.id,
+                      ordinal: variant.ordinal,
+                      status: variant.status,
+                      mode: variant.mode,
+                      contentText: variant.contentText,
+                      proposal: variant.proposal,
+                      proposalStatus: variant.proposalStatus,
+                    },
+                  ],
+                }
+              : turn
+          )
+        )
+      }
+
+      await executeGeneration({
+        threadId,
+        turnId,
+        variantId: variant.id,
+        variantOrdinal: variant.ordinal,
+        selectForContext: false,
+        message: targetTurn.userText,
+        history,
+      })
+    },
+    [activeThreadId, executeGeneration, turns]
+  )
+
+  const setSelectedVariant = useCallback(async ({ threadId, turnId, ordinal }: SetSelectedVariantArgs) => {
+    if (threadId !== activeThreadId) return
+    await setSelectedVariantInDb(turnId, ordinal)
+    setTurns((current) =>
+      current.map((turn) =>
+        turn.turnId === turnId
+          ? {
+              ...turn,
+              selectedVariantOrdinal: ordinal,
+              viewingVariantOrdinal: ordinal,
+            }
+          : turn
+      )
+    )
+  }, [activeThreadId])
+
+  const setViewingVariant = useCallback(({ threadId, turnId, ordinal }: SetViewingVariantArgs) => {
+    if (threadId !== activeThreadId) return
+    setTurns((current) =>
+      current.map((turn) =>
+        turn.turnId === turnId
+          ? {
+              ...turn,
+              viewingVariantOrdinal: ordinal,
+            }
+          : turn
+      )
+    )
+  }, [activeThreadId])
+
+  const findPendingProposal = useCallback(() => {
+    for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+      const turn = turns[turnIndex]
+      for (let variantIndex = turn.variants.length - 1; variantIndex >= 0; variantIndex -= 1) {
+        const variant = turn.variants[variantIndex]
+        if (
+          variant.mode === 'proposal' &&
+          variant.proposal &&
+          (variant.proposalStatus === undefined || variant.proposalStatus === 'pending')
+        ) {
+          return {
+            proposalId: variant.variantId,
+            payload: variant.proposal,
+          }
+        }
+      }
     }
-  }, [nodeId, pendingProposal, messages, clearPendingProposal])
+    return null
+  }, [turns])
 
-  const rejectProposal = useCallback(async () => {
-    if (!pendingProposal) return
-    try {
-      clearPendingProposal()
-      await saveThread({
-        nodeId,
-        messages: truncateMessages(messages),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      })
-    } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : 'Failed to reject proposal'
-      setError(message)
-    }
-  }, [nodeId, pendingProposal, messages, clearPendingProposal])
+  const acceptProposal = useCallback(
+    async (args?: AcceptRejectArgs) => {
+      const pending = findPendingProposal()
+      const variantId = args?.variantId ?? pending?.proposalId
+      if (!variantId) return
+
+      let appliedContent: string | null = null
+
+      setTurns((current) =>
+        current.map((turn) => ({
+          ...turn,
+          variants: turn.variants.map((variant) => {
+            if (variant.variantId !== variantId) return variant
+            if (variant.proposal?.content) {
+              appliedContent = variant.proposal.content
+            }
+            return { ...variant, proposalStatus: 'accepted' }
+          }),
+        }))
+      )
+
+      await setProposalStatus(variantId, 'accepted')
+
+      if (appliedContent) {
+        useStore.getState().updateNodeData(nodeId, { text_content: appliedContent })
+      }
+    },
+    [findPendingProposal, nodeId]
+  )
+
+  const rejectProposal = useCallback(
+    async (args?: AcceptRejectArgs) => {
+      const pending = findPendingProposal()
+      const variantId = args?.variantId ?? pending?.proposalId
+      if (!variantId) return
+
+      setTurns((current) =>
+        current.map((turn) => ({
+          ...turn,
+          variants: turn.variants.map((variant) =>
+            variant.variantId === variantId ? { ...variant, proposalStatus: 'rejected' } : variant
+          ),
+        }))
+      )
+      await setProposalStatus(variantId, 'rejected')
+    },
+    [findPendingProposal]
+  )
 
   const cancel = useCallback(() => {
-    const controller = abortRef.current
-    if (controller) {
-      controller.abort()
-    }
+    abortRef.current?.abort()
     setIsLoading(false)
   }, [])
 
+  const pendingProposal = useMemo(() => findPendingProposal(), [findPendingProposal])
+  const messages = useMemo(() => deriveLegacyMessages(nodeId, turns), [nodeId, turns])
+
   return useMemo(
     () => ({
-      messages,
-      isLoading,
-      error,
-      pendingProposal: pendingProposal
-        ? {
-            proposalId: pendingProposal.proposalId,
-            payload: pendingProposal.payload,
-          }
-        : null,
+      threads,
+      activeThreadId,
+      setActiveThread,
+      startNewThread,
+      turns,
       sendMessage,
+      regenerateVariant,
+      setViewingVariant,
+      setSelectedVariant,
       acceptProposal,
       rejectProposal,
       cancel,
+      isLoading,
+      error,
+      messages,
+      pendingProposal,
     }),
     [
-      messages,
-      isLoading,
-      error,
-      pendingProposal,
+      threads,
+      activeThreadId,
+      setActiveThread,
+      startNewThread,
+      turns,
       sendMessage,
+      regenerateVariant,
+      setViewingVariant,
+      setSelectedVariant,
       acceptProposal,
       rejectProposal,
       cancel,
+      isLoading,
+      error,
+      messages,
+      pendingProposal,
     ]
   )
 }

@@ -23,9 +23,18 @@ type RequestBody = {
   message?: string
   nodeContent?: string
   ancestry?: string | string[]
+  history?: Array<{ role?: unknown; content?: unknown }>
   chatSystemPrompt?: string
   chatUserMessageTemplate?: string
 }
+
+type ChatHistoryMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+const MAX_HISTORY_ITEMS = 24
+const MAX_HISTORY_CONTENT_CHARS = 5000
 
 const jsonError = (message: string, status: number, extra?: Record<string, unknown>) =>
   Response.json(extra ? { error: message, ...extra } : { error: message }, { status })
@@ -50,6 +59,44 @@ const normalizeAncestry = (ancestry: RequestBody['ancestry']): string | null => 
   }
 
   return null
+}
+
+const normalizeHistory = (
+  history: RequestBody['history']
+): { error: string | null; history: ChatHistoryMessage[] } => {
+  if (history === undefined) {
+    return { error: null, history: [] }
+  }
+
+  if (!Array.isArray(history)) {
+    return { error: 'history must be an array', history: [] }
+  }
+
+  const normalized: ChatHistoryMessage[] = []
+
+  for (const item of history) {
+    if (!item || typeof item !== 'object') {
+      return { error: 'history items must be objects', history: [] }
+    }
+
+    if (item.role !== 'user' && item.role !== 'assistant') {
+      return { error: 'history roles must be user or assistant', history: [] }
+    }
+
+    if (typeof item.content !== 'string') {
+      return { error: 'history content must be a string', history: [] }
+    }
+
+    normalized.push({
+      role: item.role,
+      content: item.content.slice(0, MAX_HISTORY_CONTENT_CHARS),
+    })
+  }
+
+  return {
+    error: null,
+    history: normalized.slice(-MAX_HISTORY_ITEMS),
+  }
 }
 
 
@@ -116,6 +163,9 @@ export async function POST(request: Request) {
   const ancestry = normalizeAncestry(body.ancestry)
   if (ancestry === null) return jsonError('ancestry is required', 400)
 
+  const normalizedHistory = normalizeHistory(body.history)
+  if (normalizedHistory.error) return jsonError(normalizedHistory.error, 400)
+
   const promptSettings = loadPromptSettings()
   const systemPrompt = (body.chatSystemPrompt || promptSettings.chatSystemPrompt).trim()
   const userTemplate =
@@ -132,8 +182,9 @@ export async function POST(request: Request) {
   const baseUrl = normalizeBaseUrl(body.baseUrl)
   const providerModel = buildProviderModel(body.provider, body.apiKey, body.model, baseUrl)
 
-  const sdkMessages: Array<{ role: 'system' | 'user'; content: string }> = [
+  const sdkMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
     { role: 'system', content: systemPrompt },
+    ...normalizedHistory.history,
     { role: 'user', content: userMessage },
   ]
 

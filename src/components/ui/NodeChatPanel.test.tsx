@@ -11,6 +11,30 @@ type MockMessage = {
 }
 
 interface MockHookState {
+  threads: Array<{ id: string; title: string; updatedAt: number }>
+  activeThreadId: string
+  turns: Array<{
+    turnId: string
+    seq: number
+    userText: string
+    selectedVariantOrdinal: number | null
+    viewingVariantOrdinal: number | null
+    variants: Array<{
+      variantId: string
+      ordinal: number
+      status: 'streaming' | 'complete' | 'error' | 'aborted'
+      mode: 'answer' | 'proposal'
+      contentText: string
+      proposal?: {
+        title: string
+        rationale: string
+        content: string
+        confidence?: number
+        diffSummary?: string
+      }
+      proposalStatus?: 'pending' | 'accepted' | 'rejected'
+    }>
+  }>
   messages: MockMessage[]
   isLoading: boolean
   error: string | null
@@ -23,6 +47,11 @@ interface MockHookState {
     }
   } | null
   sendMessage: ReturnType<typeof vi.fn>
+  regenerateVariant: ReturnType<typeof vi.fn>
+  setViewingVariant: ReturnType<typeof vi.fn>
+  setSelectedVariant: ReturnType<typeof vi.fn>
+  setActiveThread: ReturnType<typeof vi.fn>
+  startNewThread: ReturnType<typeof vi.fn>
   acceptProposal: ReturnType<typeof vi.fn>
   rejectProposal: ReturnType<typeof vi.fn>
   cancel: ReturnType<typeof vi.fn>
@@ -50,11 +79,19 @@ vi.mock('@/stores/useStore', () => ({
 }))
 
 const createHookState = (overrides?: Partial<MockHookState>): MockHookState => ({
+  threads: [{ id: 'thread-1', title: 'Chat 1', updatedAt: 1 }],
+  activeThreadId: 'thread-1',
+  turns: [],
   messages: [],
   isLoading: false,
   error: null,
   pendingProposal: null,
   sendMessage: vi.fn().mockResolvedValue(undefined),
+  regenerateVariant: vi.fn().mockResolvedValue(undefined),
+  setViewingVariant: vi.fn(),
+  setSelectedVariant: vi.fn().mockResolvedValue(undefined),
+  setActiveThread: vi.fn().mockResolvedValue(undefined),
+  startNewThread: vi.fn().mockResolvedValue('thread-2'),
   acceptProposal: vi.fn().mockResolvedValue(undefined),
   rejectProposal: vi.fn().mockResolvedValue(undefined),
   cancel: vi.fn(),
@@ -133,6 +170,26 @@ describe('NodeChatPanel', () => {
     expect(mockHookState.cancel).toHaveBeenCalledTimes(2)
   })
 
+  it('supports thread selector and new chat action', () => {
+    mockHookState = createHookState({
+      threads: [
+        { id: 'thread-1', title: 'Chat 1', updatedAt: 1 },
+        { id: 'thread-2', title: 'Chat 2', updatedAt: 2 },
+      ],
+      activeThreadId: 'thread-1',
+    })
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const selector = screen.getByLabelText('Thread history')
+    fireEvent.change(selector, { target: { value: 'thread-2' } })
+    expect(mockHookState.setActiveThread).toHaveBeenCalledWith('thread-2')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    expect(mockHookState.startNewThread).toHaveBeenCalledTimes(1)
+  })
+
   it('does not close on escape when input is focused', () => {
     const onClose = vi.fn()
     mockHookState = createHookState()
@@ -189,14 +246,31 @@ describe('NodeChatPanel', () => {
 
   it('renders pending proposal details with diff preview and wires accept/reject', () => {
     mockHookState = createHookState({
-      pendingProposal: {
-        proposalId: 'proposal-1',
-        payload: {
-          title: 'Improve clarity',
-          rationale: 'Improve precision and readability',
-          content: 'Original line\nNew line\nAnother line',
+      turns: [
+        {
+          turnId: 'turn-proposal',
+          seq: 0,
+          userText: 'Please revise',
+          selectedVariantOrdinal: 0,
+          viewingVariantOrdinal: 0,
+          variants: [
+            {
+              variantId: 'proposal-1',
+              ordinal: 0,
+              status: 'complete',
+              mode: 'proposal',
+              contentText: 'Original line\nNew line\nAnother line',
+              proposal: {
+                title: 'Improve clarity',
+                rationale: 'Improve precision and readability',
+                content: 'Original line\nNew line\nAnother line',
+              },
+              proposalStatus: 'pending',
+            },
+          ],
         },
-      },
+      ],
+      messages: [{ id: 'proposal-1', role: 'assistant', content: 'Original line\nNew line\nAnother line' }],
     })
     mockUseNodeChat.mockImplementation(() => mockHookState)
 
@@ -215,7 +289,73 @@ describe('NodeChatPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }))
 
-    expect(mockHookState.acceptProposal).toHaveBeenCalledTimes(1)
-    expect(mockHookState.rejectProposal).toHaveBeenCalledTimes(1)
+    expect(mockHookState.acceptProposal).toHaveBeenCalledWith({ variantId: 'proposal-1' })
+    expect(mockHookState.rejectProposal).toHaveBeenCalledWith({ variantId: 'proposal-1' })
+  })
+
+  it('shows copy/regenerate and variant actions for assistant messages', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, {
+      clipboard: { writeText },
+    })
+
+    mockHookState = createHookState({
+      turns: [
+        {
+          turnId: 'turn-1',
+          seq: 0,
+          userText: 'User text',
+          selectedVariantOrdinal: 0,
+          viewingVariantOrdinal: 0,
+          variants: [
+            {
+              variantId: 'assistant-1',
+              ordinal: 0,
+              status: 'complete',
+              mode: 'answer',
+              contentText: 'Assistant v1',
+            },
+            {
+              variantId: 'assistant-2',
+              ordinal: 1,
+              status: 'complete',
+              mode: 'answer',
+              contentText: 'Assistant v2',
+            },
+          ],
+        },
+      ],
+      messages: [{ id: 'assistant-1', role: 'assistant', content: 'Assistant v1' }],
+    })
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('Assistant v1')
+    })
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(mockHookState.regenerateVariant).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      fromVariantId: 'assistant-1',
+    })
+
+    fireEvent.change(screen.getByLabelText('1/2'), { target: { value: '1' } })
+    expect(mockHookState.setViewingVariant).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      ordinal: 1,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use for future replies' }))
+    expect(mockHookState.setSelectedVariant).toHaveBeenCalledWith({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      ordinal: 0,
+    })
   })
 })
