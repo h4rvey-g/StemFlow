@@ -89,6 +89,7 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro'
 const MAX_AI_REQUEST_ATTEMPTS = 3
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504])
 const STREAM_CHUNK_TIMEOUT_MS = 15000
+const OPENAI_COMPAT_STREAM_CHUNK_TIMEOUT_MS = 60000
 
 const isRetryableStatus = (status: number): boolean =>
   status >= 500 || RETRYABLE_STATUS_CODES.has(status)
@@ -1066,7 +1067,8 @@ const requestAiText = async (
 
   const readSseTextResponse = async (
     response: Response,
-    onChunk?: (text: string, chunkText: string) => void
+    onChunk?: (text: string, chunkText: string) => void,
+    provider?: AiProvider
   ): Promise<string> => {
     const reader = response.body?.getReader()
     if (!reader) {
@@ -1075,11 +1077,12 @@ const requestAiText = async (
 
     let text = ''
     const iterator = streamParser(reader)[Symbol.asyncIterator]()
+    const timeoutMs = provider === 'openai-compatible' ? OPENAI_COMPAT_STREAM_CHUNK_TIMEOUT_MS : STREAM_CHUNK_TIMEOUT_MS
 
     while (true) {
       const chunkResult = await nextStreamChunkWithTimeout(
         iterator,
-        STREAM_CHUNK_TIMEOUT_MS,
+        timeoutMs,
         () => {
           void reader.cancel('stream-timeout')
         }
@@ -1123,7 +1126,7 @@ const requestAiText = async (
         })
       }
 
-      const text = await readSseTextResponse(fallbackResponse)
+      const text = await readSseTextResponse(fallbackResponse, undefined, provider)
       if (!text.trim()) {
         throw new Error('AI fallback stream returned no content')
       }
@@ -1199,7 +1202,7 @@ const requestAiText = async (
           })
         }
         options?.onStreamingRawText?.(streamedText)
-      })
+      }, provider)
     } catch (error) {
       console.warn('[AI Service] Stream parsing failed, retrying as non-stream response', {
         provider,

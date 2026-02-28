@@ -2,11 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { loadApiKeys } from '@/lib/api-keys'
 import { validateChatResponse } from '@/lib/ai/chat-schemas'
-import {
-  parseOpenAIStream,
-  parseAnthropicStream,
-  parseGeminiStream,
-} from '@/lib/ai/stream-parser'
 import type { AiProvider } from '@/lib/ai/types'
 import { AiError as AiErrorClass } from '@/lib/ai/types'
 import { getThread, saveThread } from '@/lib/db/chat-db'
@@ -202,7 +197,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
         }
 
         const contentType = response.headers.get('content-type') || ''
-        const isStream = contentType.includes('text/event-stream')
+        const isStream = contentType.includes('text/plain')
 
         let chatResponseText: string
         let assistantMessageId: string
@@ -224,30 +219,27 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           setMessages((curr) => truncateMessages([...curr, initialAssistantMessage]))
 
           const reader = response.body.getReader()
-
-          // Select parser based on provider
-          const streamParser =
-            provider === 'anthropic'
-              ? parseAnthropicStream
-              : provider === 'gemini'
-                ? parseGeminiStream
-                : parseOpenAIStream
+          const decoder = new TextDecoder()
 
           try {
-            for await (const chunk of streamParser(reader)) {
-              if (chunk.done) break
+            while (true) {
+              const { value, done } = await reader.read()
+              if (done) break
+              if (value) {
+                accumulatedText += decoder.decode(value, { stream: true })
 
-              accumulatedText += chunk.text
-
-              // Update message progressively
-              setMessages((curr) =>
-                curr.map((msg) =>
-                  msg.id === assistantMessageId
-                    ? { ...msg, content: accumulatedText }
-                    : msg
+                // Update message progressively
+                setMessages((curr) =>
+                  curr.map((msg) =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: accumulatedText }
+                      : msg
+                  )
                 )
-              )
+              }
             }
+            // Flush any remaining bytes
+            accumulatedText += decoder.decode()
           } finally {
             reader.releaseLock()
           }
@@ -294,7 +286,6 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           }
 
           const updatedMessages = truncateMessages([...messages, userMessage, assistantMessage])
-          setMessages(updatedMessages)
           setMessages(updatedMessages)
 
           await saveThread({

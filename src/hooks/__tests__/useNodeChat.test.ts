@@ -1,5 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
+
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 
 import { useNodeChat } from '@/hooks/useNodeChat'
 import * as apiKeys from '@/lib/api-keys'
@@ -9,8 +14,22 @@ import { useStore } from '@/stores/useStore'
 import type { ChatResponse, ChatThread, ChatMessage } from '@/types/chat'
 import type { OMVNode } from '@/types/nodes'
 
-vi.mock('@/lib/api-keys')
-vi.mock('@/lib/db/chat-db')
+/**
+ * Mock api-keys module with factory function to avoid bun+vitest deadlock.
+ * Provides loadApiKeys as vi.fn() stub.
+ */
+vi.mock('@/lib/api-keys', () => ({
+  loadApiKeys: vi.fn(),
+}))
+
+/**
+ * Mock chat-db module with factory function.
+ * Provides getThread and saveThread as vi.fn() stubs.
+ */
+vi.mock('@/lib/db/chat-db', () => ({
+  getThread: vi.fn(),
+  saveThread: vi.fn(),
+}))
 
 const NODE_ID = 'test-node-1'
 
@@ -22,7 +41,8 @@ const createTestNode = (): OMVNode => ({
 })
 
 const mockApiKeys = () => {
-  vi.spyOn(apiKeys, 'loadApiKeys').mockResolvedValue({
+  const loadApiKeysMock = apiKeys.loadApiKeys as unknown as Mock
+  loadApiKeysMock.mockResolvedValue({
     provider: 'openai',
     openaiKey: 'sk-test-key',
     anthropicKey: null,
@@ -55,8 +75,10 @@ describe('useNodeChat', () => {
 
     mockApiKeys()
 
-    vi.spyOn(chatDb, 'getThread').mockResolvedValue(undefined)
-    vi.spyOn(chatDb, 'saveThread').mockResolvedValue(undefined)
+    const getThreadMock = chatDb.getThread as unknown as Mock
+    const saveThreadMock = chatDb.saveThread as unknown as Mock
+    getThreadMock.mockResolvedValue(undefined)
+    saveThreadMock.mockResolvedValue(undefined)
   })
 
   it('loads existing thread on mount', async () => {

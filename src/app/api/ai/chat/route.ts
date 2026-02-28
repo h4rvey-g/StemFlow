@@ -1,9 +1,11 @@
-import { createAnthropicRequest, parseAnthropicResponse } from '@/lib/ai/anthropic'
-import { createGeminiRequest, parseGeminiResponse } from '@/lib/ai/gemini'
-import { createOpenAIRequest, parseOpenAIResponse } from '@/lib/ai/openai'
+import { APICallError, generateText, streamText } from 'ai'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createOpenAI } from '@ai-sdk/openai'
 import { validateChatResponse } from '@/lib/ai/chat-schemas'
 import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
-import type { AiProvider, AiRequestOptions, AiResponse } from '@/lib/ai/types'
+import type { AiProvider } from '@/lib/ai/types'
+import type { LanguageModel } from 'ai'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -25,45 +27,8 @@ type RequestBody = {
   chatUserMessageTemplate?: string
 }
 
-const CHAT_RESPONSE_JSON_SCHEMA = {
-  oneOf: [
-    {
-      type: 'object',
-      required: ['mode', 'answerText'],
-      additionalProperties: false,
-      properties: {
-        mode: { const: 'answer' },
-        answerText: { type: 'string', minLength: 1, maxLength: 5000 },
-      },
-    },
-    {
-      type: 'object',
-      required: ['mode', 'proposal'],
-      additionalProperties: false,
-      properties: {
-        mode: { const: 'proposal' },
-        proposal: {
-          type: 'object',
-          required: ['title', 'content', 'rationale'],
-          additionalProperties: false,
-          properties: {
-            title: { type: 'string', minLength: 1, maxLength: 200 },
-            content: { type: 'string', minLength: 1, maxLength: 10000 },
-            rationale: { type: 'string', minLength: 1, maxLength: 1000 },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
-            diffSummary: { type: 'string', maxLength: 500 },
-          },
-        },
-      },
-    },
-  ],
-} as const
-
 const jsonError = (message: string, status: number, extra?: Record<string, unknown>) =>
   Response.json(extra ? { error: message, ...extra } : { error: message }, { status })
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
 
 const isProvider = (value: string): value is AiProvider =>
   value === 'gemini' || value === 'openai' || value === 'openai-compatible' || value === 'anthropic'
@@ -73,12 +38,6 @@ const normalizeBaseUrl = (value?: string): string | null => {
   const trimmed = value.trim()
   if (!trimmed) return null
   return trimmed.replace(/\/+$/, '')
-}
-
-const withGeminiKey = (url: string, apiKey: string) => {
-  const final = new URL(url)
-  final.searchParams.set('key', apiKey)
-  return final.toString()
 }
 
 const normalizeAncestry = (ancestry: RequestBody['ancestry']): string | null => {
@@ -91,19 +50,6 @@ const normalizeAncestry = (ancestry: RequestBody['ancestry']): string | null => 
   }
 
   return null
-}
-
-const parseOpenAICompatibleResponse = (json: unknown): AiResponse => {
-  const parsedOpenAI = parseOpenAIResponse(json)
-  if (parsedOpenAI.text.trim()) return parsedOpenAI
-
-  const parsedGemini = parseGeminiResponse(json)
-  if (parsedGemini.text.trim()) return parsedGemini
-
-  const parsedAnthropic = parseAnthropicResponse(json)
-  if (parsedAnthropic.text.trim()) return parsedAnthropic
-
-  return parsedOpenAI
 }
 
 const parseJsonFromModelText = (text: string): unknown => {
@@ -131,14 +77,49 @@ const parseJsonFromModelText = (text: string): unknown => {
   return null
 }
 
-const readUpstreamErrorPayload = async (upstream: Response): Promise<unknown> => {
-  const contentType = upstream.headers.get('content-type') || ''
-  if (contentType.includes('application/json')) {
-    return upstream.json().catch(() => ({ error: 'Upstream error' }))
+const buildProviderModel = (
+  provider: AiProvider,
+  apiKey: string,
+  model: string,
+  baseUrl?: string | null
+): LanguageModel => {
+  if (provider === 'gemini') {
+    return createGoogleGenerativeAI({ apiKey })(model)
   }
 
-  const text = await upstream.text().catch(() => '')
-  return { error: text || 'Upstream error' }
+  if (provider === 'openai') {
+    return createOpenAI({ apiKey })(model)
+  }
+
+  if (provider === 'openai-compatible') {
+    return createOpenAI({
+      apiKey,
+      baseURL: baseUrl ?? undefined,
+    })(model)
+  }
+
+  // anthropic
+  return createAnthropic({ apiKey })(model)
+}
+
+const handleSdkError = (error: unknown): Response => {
+  if (error instanceof APICallError) {
+    const status = error.statusCode ?? 502
+    let payload: Record<string, unknown>
+    if (error.responseBody) {
+      try {
+        payload = JSON.parse(error.responseBody) as Record<string, unknown>
+      } catch {
+        payload = { error: error.message }
+      }
+    } else {
+      payload = { error: error.message }
+    }
+    return Response.json(payload, { status })
+  }
+
+  const message = error instanceof Error ? error.message : 'Upstream request failed'
+  return jsonError(message, 502)
 }
 
 export async function POST(request: Request) {
@@ -172,117 +153,40 @@ export async function POST(request: Request) {
     message: body.message.trim(),
   })
 
-  const options: AiRequestOptions = {
-    provider: body.provider,
-    model: body.model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ],
+  const baseUrl = normalizeBaseUrl(body.baseUrl)
+  const providerModel = buildProviderModel(body.provider, body.apiKey, body.model, baseUrl)
+
+  const sdkMessages: Array<{ role: 'system' | 'user'; content: string }> = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userMessage },
+  ]
+
+  const callOptions = {
+    model: providerModel,
+    messages: sdkMessages,
     temperature: typeof body.temperature === 'number' ? body.temperature : undefined,
     maxTokens: typeof body.maxTokens === 'number' ? body.maxTokens : undefined,
-    stream: Boolean(body.stream),
-  }
+  } as const
 
-  let url: string
-  let reqBody: unknown
-  let headers: Record<string, string>
-
-  if (body.provider === 'gemini') {
-    const geminiRequest = createGeminiRequest(options)
-    url = withGeminiKey(geminiRequest.url, body.apiKey)
-    reqBody = geminiRequest.body
-    headers = geminiRequest.headers
-
-    if (isRecord(reqBody)) {
-      const generationConfig = isRecord(reqBody.generationConfig)
-        ? reqBody.generationConfig
-        : {}
-
-      reqBody.generationConfig = {
-        ...generationConfig,
-        responseMimeType: 'application/json',
-      }
-    }
-  } else if (body.provider === 'openai' || body.provider === 'openai-compatible') {
-    const openaiRequest = createOpenAIRequest(options)
-    const baseUrl = normalizeBaseUrl(body.baseUrl)
-    url = baseUrl ? `${baseUrl}/chat/completions` : openaiRequest.url
-    reqBody = openaiRequest.body
-    headers = {
-      ...openaiRequest.headers,
-      Authorization: `Bearer ${body.apiKey}`,
-    }
-
-    if (isRecord(reqBody)) {
-      reqBody.response_format = {
-        type: 'json_schema',
-        json_schema: {
-          name: 'chat_response',
-          strict: true,
-          schema: CHAT_RESPONSE_JSON_SCHEMA,
-        },
-      }
-    }
-  } else {
-    const anthropicRequest = createAnthropicRequest(options)
-    url = anthropicRequest.url
-    reqBody = anthropicRequest.body
-    headers = {
-      ...anthropicRequest.headers,
-      'x-api-key': body.apiKey,
+  if (body.stream) {
+    try {
+      const result = streamText(callOptions)
+      return result.toTextStreamResponse()
+    } catch (error) {
+      return handleSdkError(error)
     }
   }
 
-  const upstreamInit: RequestInit = {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(reqBody),
-  }
-
-  ;(upstreamInit as RequestInit & { duplex?: 'half' }).duplex = 'half'
-
-  let upstream: Response
+  // Non-streaming path: generate full text, parse JSON, validate with schema
+  let resultText: string
   try {
-    upstream = await fetch(url, upstreamInit)
-  } catch {
-    return jsonError('Upstream request failed', 502)
+    const result = await generateText(callOptions)
+    resultText = result.text
+  } catch (error) {
+    return handleSdkError(error)
   }
 
-  if (!upstream.ok) {
-    const errorPayload = await readUpstreamErrorPayload(upstream)
-    if (isRecord(errorPayload)) {
-      return Response.json(errorPayload, { status: upstream.status })
-    }
-    return jsonError('Upstream error', upstream.status)
-  }
-
-  if (options.stream) {
-    const contentType = upstream.headers.get('content-type') ?? 'text/event-stream; charset=utf-8'
-
-    return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    })
-  }
-
-  const upstreamJson = await upstream.json().catch(() => null)
-
-  const parsedProviderResponse =
-    body.provider === 'gemini'
-      ? parseGeminiResponse(upstreamJson)
-      : body.provider === 'openai'
-        ? parseOpenAIResponse(upstreamJson)
-        : body.provider === 'openai-compatible'
-          ? parseOpenAICompatibleResponse(upstreamJson)
-          : parseAnthropicResponse(upstreamJson)
-
-  const parsedJson = parseJsonFromModelText(parsedProviderResponse.text)
+  const parsedJson = parseJsonFromModelText(resultText)
   if (!parsedJson) {
     return jsonError('AI response is not valid JSON', 422)
   }
