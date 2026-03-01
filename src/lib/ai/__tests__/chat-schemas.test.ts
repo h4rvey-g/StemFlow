@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { validateChatResponse, chatResponseSchema, answerResponseSchema, proposalResponseSchema } from '@/lib/ai/chat-schemas'
-import type { ChatResponse } from '@/types/chat'
 
 describe('chat schemas', () => {
   describe('validateChatResponse', () => {
@@ -76,6 +75,29 @@ describe('chat schemas', () => {
         }
         const result = validateChatResponse(data)
         expect(result.success).toBe(true)
+      })
+
+      it('accepts proposal when structured output uses null for optional fields', () => {
+        const data = {
+          mode: 'proposal',
+          proposal: {
+            title: 'Updated content',
+            content: 'New content here',
+            rationale: 'Better explanation',
+            confidence: null,
+            diffSummary: null,
+          },
+        }
+        const result = validateChatResponse(data)
+        expect(result.success).toBe(true)
+        expect(result.data).toEqual({
+          mode: 'proposal',
+          proposal: {
+            title: 'Updated content',
+            content: 'New content here',
+            rationale: 'Better explanation',
+          },
+        })
       })
 
       it('rejects proposal with empty title', () => {
@@ -165,6 +187,36 @@ describe('chat schemas', () => {
     })
 
     describe('invalid responses', () => {
+      it('rejects answer mode response containing proposal payload', () => {
+        const data = {
+          mode: 'answer',
+          answerText: 'Some text',
+          proposal: {
+            title: 'Should not exist',
+            content: 'Wrong branch payload',
+            rationale: 'Invalid mixed mode',
+          },
+        }
+        const result = validateChatResponse(data)
+        expect(result.success).toBe(false)
+        expect(result.error?.message).toContain('Proposal is not allowed in answer mode')
+      })
+
+      it('rejects proposal mode response containing answerText', () => {
+        const data = {
+          mode: 'proposal',
+          answerText: 'Should not exist',
+          proposal: {
+            title: 'Title',
+            content: 'Content',
+            rationale: 'Reason',
+          },
+        }
+        const result = validateChatResponse(data)
+        expect(result.success).toBe(false)
+        expect(result.error?.message).toContain('Answer text is not allowed in proposal mode')
+      })
+
       it('rejects response with invalid mode', () => {
         const data = {
           mode: 'invalid',

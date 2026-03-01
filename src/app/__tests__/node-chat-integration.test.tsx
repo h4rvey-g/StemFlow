@@ -478,6 +478,94 @@ describe('Node Chat Integration', () => {
     )
   })
 
+  it('preserves prior assistant response after closing and reopening chat panel', async () => {
+    mockFetchResponse({ mode: 'answer', answerText: 'Persistent response across reopen.' })
+
+    render(<Page />)
+    openChatFor('obs-1')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('node-chat-panel')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Ask about this node or request a revision...')
+    fireEvent.change(input, { target: { value: 'remember this answer' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Persistent response across reopen.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close chat panel' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('node-chat-panel')).not.toBeInTheDocument()
+    })
+
+    openChatFor('obs-1')
+    await waitFor(() => {
+      expect(screen.getByTestId('node-chat-panel')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Persistent response across reopen.')).toBeInTheDocument()
+    })
+  })
+
+  it('keeps response after closing during in-flight request and reopening later', async () => {
+    let resolveResponse: ((value: Response) => void) | undefined
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveResponse = resolve
+    })
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => pendingResponse)
+
+    render(<Page />)
+    openChatFor('obs-1')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('node-chat-panel')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Ask about this node or request a revision...')
+    fireEvent.change(input, { target: { value: 'persist after close' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close chat panel' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('node-chat-panel')).not.toBeInTheDocument()
+    })
+
+    if (!resolveResponse) {
+      throw new Error('Expected fetch resolver to be initialized')
+    }
+
+    resolveResponse(
+      new Response(JSON.stringify({ mode: 'answer', answerText: 'Survives close while loading.' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+
+    const updateVariantMock = (chatDb as unknown as {
+      updateVariant: ReturnType<typeof vi.fn>
+    }).updateVariant
+
+    await waitFor(() => {
+      expect(updateVariantMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^variant-/),
+        expect.objectContaining({ status: 'complete', contentText: 'Survives close while loading.' })
+      )
+    })
+
+    openChatFor('obs-1')
+    await waitFor(() => {
+      expect(screen.getByTestId('node-chat-panel')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Survives close while loading.')).toBeInTheDocument()
+    })
+  })
+
   // ── 2. Answer response flow ─────────────────────────────────────────────
 
   it('sends user question and displays AI answer in the panel', async () => {

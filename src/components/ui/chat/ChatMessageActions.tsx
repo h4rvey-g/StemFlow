@@ -1,4 +1,5 @@
 import React from 'react'
+import { Check, Copy, RefreshCw } from 'lucide-react'
 
 import { ChatVariantPicker } from './ChatVariantPicker'
 import { buildSimpleDiff, previewContent } from './chat-utils'
@@ -123,9 +124,11 @@ export const ChatMessageActions = ({
         onClick={() => {
           void onCopy(messageId, messageContent)
         }}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+        className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 transition-colors hover:bg-slate-50"
+        aria-label={copiedMessageId === messageId ? 'Copied' : 'Copy message'}
+        title={copiedMessageId === messageId ? 'Copied' : 'Copy message'}
       >
-        {copiedMessageId === messageId ? 'Copied' : 'Copy'}
+        {copiedMessageId === messageId ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
 
       <button
@@ -137,9 +140,11 @@ export const ChatMessageActions = ({
             fromVariantId,
           })
         }}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+        className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 transition-colors hover:bg-slate-50"
+        aria-label="Regenerate response"
+        title="Regenerate response"
       >
-        Regenerate
+        <RefreshCw className="h-3.5 w-3.5" />
       </button>
 
       <ChatVariantPicker

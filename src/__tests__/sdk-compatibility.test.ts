@@ -97,6 +97,31 @@ describe('SDK Compatibility', () => {
       expect(result.data?.mode).toBe('proposal')
     })
 
+    it('accepts structured output nulls for optional proposal fields', () => {
+      const sdkResponse = {
+        mode: 'proposal',
+        proposal: {
+          title: 'Improved mechanism',
+          content: 'The proposed new content for the node',
+          rationale: 'This improves clarity and scientific rigor',
+          confidence: null,
+          diffSummary: null,
+        },
+      }
+
+      const result = validateChatResponse(sdkResponse)
+
+      expect(result.success).toBe(true)
+      expect(result.data).toEqual({
+        mode: 'proposal',
+        proposal: {
+          title: 'Improved mechanism',
+          content: 'The proposed new content for the node',
+          rationale: 'This improves clarity and scientific rigor',
+        },
+      })
+    })
+
     it('rejects proposal response with missing required fields', () => {
       const invalidResponse = {
         mode: 'proposal',

@@ -146,6 +146,44 @@ const truncateToHistoryLimit = (value: string): string => {
   return value.slice(0, HISTORY_CONTENT_LIMIT)
 }
 
+const parseStreamChunk = (line: string): Partial<ChatResponse> | null => {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+
+  const payload = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
+  if (!payload || payload === '[DONE]') return null
+
+  try {
+    const parsed = JSON.parse(payload)
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed as Partial<ChatResponse>
+  } catch {
+    return null
+  }
+}
+
+type StreamChatResponse = {
+  mode?: 'answer' | 'proposal'
+  answerText?: string
+  proposal?: Partial<ProposalPayload>
+}
+
+const mergeChatResponse = (
+  previous: StreamChatResponse,
+  incoming: StreamChatResponse
+): StreamChatResponse => {
+  const merged: StreamChatResponse = { ...previous, ...incoming }
+
+  if (previous.proposal || incoming.proposal) {
+    merged.proposal = {
+      ...(previous.proposal ?? {}),
+      ...(incoming.proposal ?? {}),
+    }
+  }
+
+  return merged
+}
+
 const formatVariantForHistory = (variant: HookVariant): string => {
   if (variant.mode === 'answer') {
     return truncateToHistoryLimit(variant.contentText)
@@ -227,7 +265,7 @@ const deriveLegacyMessages = (nodeId: string, turns: HookTurn[]): ChatMessage[] 
     const latestVariant = turn.variants.at(-1) ?? null
     const shownVariant = viewingVariant ?? selectedVariant ?? latestVariant
 
-    if (shownVariant) {
+    if (shownVariant && shownVariant.contentText.trim()) {
       messages.push({
         id: shownVariant.variantId,
         nodeId,
@@ -251,6 +289,14 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
   const [error, setError] = useState<string | null>(null)
   const nodeIdRef = useRef(nodeId)
   const abortRef = useRef<AbortController | null>(null)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const refreshThreads = useCallback(async () => {
     const fetched = await listThreadsV2(nodeId)
@@ -276,9 +322,9 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
     nodeIdRef.current = nodeId
 
     const run = async () => {
+      console.log('[useNodeChat] Loading effect running for nodeId:', nodeId)
       try {
         const fetchedThreads = await refreshThreads()
-        if (nodeIdRef.current !== nodeId) return
 
         const storedActiveThreadId = await getActiveThreadId(nodeId)
         const availableThreadId =
@@ -286,6 +332,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             ? storedActiveThreadId
             : fetchedThreads[0]?.id ?? ''
 
+        console.log('[useNodeChat] Available thread ID:', availableThreadId)
         setActiveThreadIdState(availableThreadId)
 
         if (availableThreadId) {
@@ -294,6 +341,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             await loadThreadTurns(availableThreadId)
           }
         } else {
+          console.log('[useNodeChat] No available thread, setting empty turns')
           setTurns([])
         }
       } catch (caught) {
@@ -304,9 +352,6 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
 
     void run()
 
-    return () => {
-      abortRef.current?.abort()
-    }
   }, [loadThreadTurns, nodeId, refreshThreads])
 
   const ensureActiveThread = useCallback(async (): Promise<string> => {
@@ -350,10 +395,12 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
       const generationId = generateId()
       const controller = new AbortController()
       abortRef.current = controller
-      setIsLoading(true)
-      setError(null)
+      if (isMountedRef.current) {
+        setIsLoading(true)
+        setError(null)
+      }
 
-      let latestChatResponse: Partial<ChatResponse> = {}
+      let latestChatResponse: StreamChatResponse = {}
       let latestContent = ''
       let lastPersistedAt = 0
 
@@ -433,53 +480,70 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
                 const line = lines[index]?.trim()
                 if (!line) continue
 
-                try {
-                  const chunk = JSON.parse(line) as Partial<ChatResponse>
-                  latestChatResponse = { ...latestChatResponse, ...chunk }
-                  latestContent =
-                    latestChatResponse.mode === 'answer' && latestChatResponse.answerText
-                      ? latestChatResponse.answerText
-                      : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
-                        ? latestChatResponse.proposal.content
-                        : ''
-                  patchVariantInState(args.turnId, args.variantId, {
-                    contentText: latestContent,
-                    mode:
-                      latestChatResponse.mode === 'proposal' || latestChatResponse.mode === 'answer'
-                        ? latestChatResponse.mode
-                        : undefined,
-                  })
-                  await persistPartial(false)
-                  } catch {
-                    continue
-                  }
+                const chunk = parseStreamChunk(line) as StreamChatResponse | null
+                if (!chunk) continue
+
+                latestChatResponse = mergeChatResponse(latestChatResponse, chunk)
+                if (latestChatResponse.mode === 'answer' && typeof latestChatResponse.answerText === 'string') {
+                  latestContent = latestChatResponse.answerText
+                } else if (
+                  latestChatResponse.mode === 'proposal' &&
+                  typeof latestChatResponse.proposal?.content === 'string'
+                ) {
+                  latestContent = latestChatResponse.proposal.content
+                }
+
+                const variantPatch: Partial<HookVariant> = {
+                  contentText: latestContent,
+                }
+                if (latestChatResponse.mode === 'proposal' || latestChatResponse.mode === 'answer') {
+                  variantPatch.mode = latestChatResponse.mode
+                }
+
+                if (isMountedRef.current) {
+                  patchVariantInState(args.turnId, args.variantId, variantPatch)
+                }
+                await persistPartial(false)
               }
             }
 
             buffer += decoder.decode()
             if (buffer.trim()) {
-              try {
-                const chunk = JSON.parse(buffer) as Partial<ChatResponse>
-                latestChatResponse = { ...latestChatResponse, ...chunk }
-              } catch {
-                buffer = ''
+              const chunk = parseStreamChunk(buffer) as StreamChatResponse | null
+              if (chunk) {
+                latestChatResponse = mergeChatResponse(latestChatResponse, chunk)
               }
             }
           } finally {
             reader.releaseLock()
           }
         } else {
-          latestChatResponse = (await response.json()) as Partial<ChatResponse>
-          latestContent =
-            latestChatResponse.mode === 'answer' && latestChatResponse.answerText
-              ? latestChatResponse.answerText
-              : latestChatResponse.mode === 'proposal' && latestChatResponse.proposal
-                ? latestChatResponse.proposal.content
-                : ''
-          patchVariantInState(args.turnId, args.variantId, { contentText: latestContent })
+          latestChatResponse = (await response.json()) as StreamChatResponse
+          if (latestChatResponse.mode === 'answer' && typeof latestChatResponse.answerText === 'string') {
+            latestContent = latestChatResponse.answerText
+          } else if (
+            latestChatResponse.mode === 'proposal' &&
+            typeof latestChatResponse.proposal?.content === 'string'
+          ) {
+            latestContent = latestChatResponse.proposal.content
+          }
+          if (isMountedRef.current) {
+            patchVariantInState(args.turnId, args.variantId, { contentText: latestContent })
+          }
         }
 
         const validated = validateChatResponse(latestChatResponse)
+
+        // DEBUG: Log AI response to trace empty content issue
+        console.log('🤖 [AI Response]', {
+          raw: latestChatResponse,
+          validated: validated.success,
+          mode: validated.data?.mode,
+          answerText: validated.data?.mode === 'answer' ? validated.data.answerText : null,
+          answerLength: validated.data?.mode === 'answer' ? (validated.data.answerText?.length || 0) : 0,
+          proposalContent: validated.data?.mode === 'proposal' ? validated.data.proposal?.content : null,
+          proposalLength: validated.data?.mode === 'proposal' ? (validated.data.proposal?.content?.length || 0) : 0,
+        })
         if (!validated.success || !validated.data) {
           throw new Error(validated.error?.message || 'Invalid response from AI')
         }
@@ -489,12 +553,22 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
         const finalContent =
           finalMode === 'answer' ? responseData.answerText : responseData.proposal.content
 
-        patchVariantInState(args.turnId, args.variantId, {
-          mode: finalMode,
+        if (isMountedRef.current) {
+          patchVariantInState(args.turnId, args.variantId, {
+            mode: finalMode,
+            status: 'complete',
+            contentText: finalContent,
+            proposal: finalMode === 'proposal' ? responseData.proposal : undefined,
+            proposalStatus: finalMode === 'proposal' ? 'pending' : undefined,
+          })
+        }
+
+        // DEBUG: Log before persisting to DB
+        console.log('💾 [Before updateVariant]', {
+          variantId: args.variantId,
           status: 'complete',
-          contentText: finalContent,
-          proposal: finalMode === 'proposal' ? responseData.proposal : undefined,
-          proposalStatus: finalMode === 'proposal' ? 'pending' : undefined,
+          contentLength: finalContent?.length || 0,
+          contentPreview: finalContent?.substring(0, 100) || '(empty)',
         })
 
         await updateVariant(args.variantId, {
@@ -520,10 +594,12 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             status: 'aborted',
             contentText: latestContent,
           })
-          patchVariantInState(args.turnId, args.variantId, {
-            status: 'aborted',
-            contentText: latestContent,
-          })
+          if (isMountedRef.current) {
+            patchVariantInState(args.turnId, args.variantId, {
+              status: 'aborted',
+              contentText: latestContent,
+            })
+          }
           return
         }
 
@@ -531,18 +607,28 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           status: 'error',
           contentText: latestContent,
         })
-        patchVariantInState(args.turnId, args.variantId, {
-          status: 'error',
-          contentText: latestContent,
-        })
+        if (isMountedRef.current) {
+          patchVariantInState(args.turnId, args.variantId, {
+            status: 'error',
+            contentText: latestContent,
+          })
+        }
 
-        setError(caught instanceof Error ? caught.message : 'Failed to send message')
+        if (isMountedRef.current) {
+          setError(caught instanceof Error ? caught.message : 'Failed to send message')
+        }
       } finally {
-        await persistPartial(true)
+        // Only persist partial content if we didn't already persist final content
+        // (i.e., if we aborted or errored before reaching the success block)
+        if (controller.signal.aborted || latestChatResponse === null) {
+          await persistPartial(true)
+        }
         if (abortRef.current === controller) {
           abortRef.current = null
         }
-        setIsLoading(false)
+        if (isMountedRef.current) {
+          setIsLoading(false)
+        }
         await refreshThreads()
       }
     },

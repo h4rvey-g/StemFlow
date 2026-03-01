@@ -409,9 +409,22 @@ export async function updateVariant(
   >,
   database: StemFlowDBInstance = db
 ): Promise<void> {
-  await database.chatVariants.update(variantId, {
+  // DEBUG: Log updateVariant call
+  console.log('💾 [updateVariant called]', {
+    variantId,
+    patchKeys: Object.keys(patch),
+    contentLength: patch.contentText?.length || 0,
+    status: patch.status,
+  })
+  
+  const result = await database.chatVariants.update(variantId, {
     ...patch,
     updatedAt: patch.updatedAt ?? Date.now()
+  })
+  
+  console.log('✅ [updateVariant complete]', {
+    variantId,
+    rowsAffected: result,
   })
 }
 

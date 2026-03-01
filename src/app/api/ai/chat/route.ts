@@ -2,7 +2,7 @@ import { APICallError, generateObject, streamObject } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
-import { chatResponseSchema } from '@/lib/ai/chat-schemas'
+import { chatResponseStructuredSchema, validateChatResponse } from '@/lib/ai/chat-schemas'
 import { interpolatePromptTemplate, loadPromptSettings } from '@/lib/prompt-settings'
 import type { AiProvider } from '@/lib/ai/types'
 import type { LanguageModel } from 'ai'
@@ -199,7 +199,7 @@ export async function POST(request: Request) {
     try {
       const result = streamObject({
         ...callOptions,
-        schema: chatResponseSchema,
+        schema: chatResponseStructuredSchema,
         output: 'object',
       })
       return result.toTextStreamResponse()
@@ -213,20 +213,35 @@ export async function POST(request: Request) {
   try {
     const result = await generateObject({
       ...callOptions,
-      schema: chatResponseSchema,
+      schema: chatResponseStructuredSchema,
       output: 'object',
     })
     resultData = result.object
+
+    // DEBUG: Log generated object to trace empty content issue
+    console.log('🔧 [API Generated]', {
+      mode: (resultData as any)?.mode,
+      answerText: (resultData as any)?.answerText,
+      answerLength: (resultData as any)?.answerText?.length || 0,
+      proposal: (resultData as any)?.proposal ? 'present' : 'null',
+      proposalLength: (resultData as any)?.proposal?.content?.length || 0,
+    })
   } catch (error) {
     return handleSdkError(error)
   }
 
-  // Data is already validated by AI SDK schema enforcement
   if (!resultData) {
     return jsonError('AI response is empty', 422)
   }
 
-  return Response.json(resultData, {
+  const validated = validateChatResponse(resultData)
+  if (!validated.success) {
+    return jsonError(validated.error?.message || 'Invalid response from AI', 422, {
+      details: validated.error?.issues,
+    })
+  }
+
+  return Response.json(validated.data, {
     status: 200,
     headers: {
       'Cache-Control': 'no-store',

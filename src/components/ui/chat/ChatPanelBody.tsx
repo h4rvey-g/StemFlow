@@ -31,7 +31,6 @@ export const ChatPanelBody = ({ nodeId, onClose }: ChatPanelBodyProps) => {
     setSelectedVariant,
     acceptProposal,
     rejectProposal,
-    cancel,
   } = useNodeChat(nodeId)
 
   const messageViews = messages as ChatMessageView[]
@@ -48,7 +47,6 @@ export const ChatPanelBody = ({ nodeId, onClose }: ChatPanelBodyProps) => {
 
       const target = event.target
       if (!(target instanceof HTMLElement)) {
-        cancel()
         onClose()
         return
       }
@@ -61,7 +59,6 @@ export const ChatPanelBody = ({ nodeId, onClose }: ChatPanelBodyProps) => {
         target.tagName === 'SELECT'
 
       if (!isEditable) {
-        cancel()
         onClose()
       }
     }
@@ -71,7 +68,7 @@ export const ChatPanelBody = ({ nodeId, onClose }: ChatPanelBodyProps) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [cancel, onClose])
+  }, [onClose])
 
   return (
     <>
@@ -82,10 +79,7 @@ export const ChatPanelBody = ({ nodeId, onClose }: ChatPanelBodyProps) => {
         activeThreadId={activeThreadId}
         setActiveThread={setActiveThread}
         startNewThread={startNewThread}
-        onClose={() => {
-          cancel()
-          onClose()
-        }}
+        onClose={onClose}
       />
 
       <ChatConversation

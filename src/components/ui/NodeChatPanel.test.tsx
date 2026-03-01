@@ -149,7 +149,7 @@ describe('NodeChatPanel', () => {
     expect(scrollable).toBeInTheDocument()
   })
 
-  it('handles close button and escape key', () => {
+  it('handles close button and escape key without canceling generation', () => {
     const onClose = vi.fn()
     mockHookState = createHookState()
     mockUseNodeChat.mockImplementation(() => mockHookState)
@@ -158,7 +158,7 @@ describe('NodeChatPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close chat panel' }))
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(mockHookState.cancel).toHaveBeenCalledTimes(1)
+    expect(mockHookState.cancel).not.toHaveBeenCalled()
 
     const escapeEvent = new KeyboardEvent('keydown', {
       key: 'Escape',
@@ -167,7 +167,7 @@ describe('NodeChatPanel', () => {
     window.dispatchEvent(escapeEvent)
 
     expect(onClose).toHaveBeenCalledTimes(2)
-    expect(mockHookState.cancel).toHaveBeenCalledTimes(2)
+    expect(mockHookState.cancel).not.toHaveBeenCalled()
   })
 
   it('supports thread selector and new chat action', () => {
@@ -331,13 +331,13 @@ describe('NodeChatPanel', () => {
 
     render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy message' }))
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith('Assistant v1')
     })
     expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' }))
     expect(mockHookState.regenerateVariant).toHaveBeenCalledWith({
       threadId: 'thread-1',
       turnId: 'turn-1',

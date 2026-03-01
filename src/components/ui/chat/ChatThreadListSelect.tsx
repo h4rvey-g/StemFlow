@@ -1,4 +1,5 @@
 import React from 'react'
+import { Plus } from 'lucide-react'
 
 import type { ChatThreadView } from './chat-types'
 
@@ -53,9 +54,11 @@ export const ChatThreadListSelect = ({
         onClick={() => {
           void startNewThread()
         }}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+        className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 transition-colors hover:bg-slate-50"
+        aria-label="New chat"
+        title="New chat"
       >
-        New chat
+        <Plus className="h-3.5 w-3.5" />
       </button>
     </>
   )
