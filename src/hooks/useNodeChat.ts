@@ -403,6 +403,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
       let latestChatResponse: StreamChatResponse = {}
       let latestContent = ''
       let lastPersistedAt = 0
+      let didPersistTerminalState = false
 
       const persistPartial = async (force = false) => {
         const now = Date.now()
@@ -577,6 +578,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           proposal: finalMode === 'proposal' ? responseData.proposal : undefined,
           proposalStatus: finalMode === 'proposal' ? 'pending' : undefined,
         })
+        didPersistTerminalState = true
 
         if (args.selectForContext) {
           await setSelectedVariantInDb(args.turnId, args.variantOrdinal)
@@ -594,6 +596,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
             status: 'aborted',
             contentText: latestContent,
           })
+          didPersistTerminalState = true
           if (isMountedRef.current) {
             patchVariantInState(args.turnId, args.variantId, {
               status: 'aborted',
@@ -607,6 +610,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           status: 'error',
           contentText: latestContent,
         })
+        didPersistTerminalState = true
         if (isMountedRef.current) {
           patchVariantInState(args.turnId, args.variantId, {
             status: 'error',
@@ -618,9 +622,7 @@ export function useNodeChat(nodeId: string): UseNodeChatReturn {
           setError(caught instanceof Error ? caught.message : 'Failed to send message')
         }
       } finally {
-        // Only persist partial content if we didn't already persist final content
-        // (i.e., if we aborted or errored before reaching the success block)
-        if (controller.signal.aborted || latestChatResponse === null) {
+        if (!didPersistTerminalState && latestContent) {
           await persistPartial(true)
         }
         if (abortRef.current === controller) {

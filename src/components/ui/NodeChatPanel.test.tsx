@@ -122,7 +122,7 @@ describe('NodeChatPanel', () => {
   it('returns null and does not call hook for null nodeId', () => {
     render(<NodeChatPanel nodeId={null} onClose={vi.fn()} />)
 
-    expect(screen.queryByTestId('node-chat-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('standalone-node-chat-panel')).not.toBeInTheDocument()
     expect(mockUseNodeChat).not.toHaveBeenCalled()
   })
 
@@ -137,7 +137,7 @@ describe('NodeChatPanel', () => {
 
     render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
 
-    const panel = screen.getByTestId('node-chat-panel')
+    const panel = screen.getByTestId('standalone-node-chat-panel')
     expect(panel).toBeInTheDocument()
     expect(document.body).toContainElement(panel)
     expect(mockUseNodeChat).toHaveBeenCalledWith('node-1')
@@ -232,6 +232,133 @@ describe('NodeChatPanel', () => {
       expect(mockHookState.sendMessage).toHaveBeenCalledWith('revise this')
     })
     expect(input.value).toBe('')
+    expect(input).toHaveFocus()
+  })
+
+  it('submits on Cmd/Ctrl+Enter', async () => {
+    mockHookState = createHookState()
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'keyboard send' } })
+
+    fireEvent.keyDown(input, {
+      key: 'Enter',
+      metaKey: true,
+    })
+
+    await waitFor(() => {
+      expect(mockHookState.sendMessage).toHaveBeenCalledWith('keyboard send')
+    })
+  })
+
+  it('allows Shift+Enter to insert a newline without sending', () => {
+    mockHookState = createHookState()
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: 'first line' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+
+    expect(mockHookState.sendMessage).not.toHaveBeenCalled()
+    expect(input.value).toBe('first line')
+  })
+
+  it('ignores Enter shortcuts during IME composition', () => {
+    mockHookState = createHookState()
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: '正在输入' } })
+    fireEvent.keyDown(input, {
+      key: 'Enter',
+      ctrlKey: true,
+      isComposing: true,
+    })
+
+    expect(mockHookState.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not send on plain Enter', () => {
+    mockHookState = createHookState()
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: 'plain enter' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(mockHookState.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('prevents duplicate sends before loading state propagates', async () => {
+    let releaseSend!: () => void
+    const sendPromise = new Promise<void>((resolve) => {
+      releaseSend = resolve
+    })
+
+    mockHookState = createHookState({
+      sendMessage: vi.fn().mockImplementation(() => sendPromise),
+    })
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: 'send once' } })
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+
+    await waitFor(() => {
+      expect(mockHookState.sendMessage).toHaveBeenCalledTimes(1)
+    })
+
+    releaseSend()
+  })
+
+  it('preserves the draft when sending fails', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockHookState = createHookState({
+      sendMessage: vi.fn().mockRejectedValue(new Error('send failed')),
+    })
+    mockUseNodeChat.mockImplementation(() => mockHookState)
+
+    render(<NodeChatPanel nodeId="node-1" onClose={vi.fn()} />)
+
+    const input = screen.getByPlaceholderText(
+      'Ask about this node or request a revision...'
+    ) as HTMLTextAreaElement
+
+    fireEvent.change(input, { target: { value: 'keep me' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(mockHookState.sendMessage).toHaveBeenCalledWith('keep me')
+    })
+    expect(input.value).toBe('keep me')
+
+    consoleErrorSpy.mockRestore()
   })
 
   it('shows loading state and disables send while loading', () => {

@@ -20,7 +20,7 @@ const NodeChatPanelContent = ({ nodeId, onClose }: { nodeId: string; onClose: ()
         }}
       />
       <aside
-        data-testid="node-chat-panel"
+        data-testid="standalone-node-chat-panel"
         role="dialog"
         aria-modal="true"
         aria-label="Node chat panel"

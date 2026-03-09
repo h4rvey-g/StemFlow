@@ -638,4 +638,88 @@ describe('useNodeChat v2', () => {
 
     expect(result.current.error).toBeNull()
   })
+
+  it('marks streamed partial responses as error when streaming fails after partial content', async () => {
+    ;(apiKeys.loadApiKeys as unknown as Mock).mockResolvedValue({
+      provider: 'openai',
+      openaiKey: 'sk-test',
+      anthropicKey: null,
+      geminiKey: null,
+      openaiBaseUrl: null,
+      anthropicBaseUrl: null,
+      openaiModel: 'gpt-4o',
+      anthropicModel: null,
+      geminiModel: null,
+      openaiFastModel: null,
+      anthropicFastModel: null,
+      geminiFastModel: null,
+      aiStreamingEnabled: true,
+    })
+
+    ;(chatDb.listTurnsWithVariants as unknown as Mock).mockResolvedValue([])
+    ;(chatDb.appendTurn as unknown as Mock).mockResolvedValue({
+      id: 'turn-new',
+      threadId: 'thread-1',
+      seq: 0,
+      userText: 'stream me',
+      userCreatedAt: 1,
+      selectedVariantOrdinal: null,
+    })
+    ;(chatDb.appendVariant as unknown as Mock).mockResolvedValue({
+      id: 'variant-stream',
+      turnId: 'turn-new',
+      ordinal: 0,
+      status: 'streaming',
+      mode: 'answer',
+      contentText: '',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    const encoder = new TextEncoder()
+    let chunkSent = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!chunkSent) {
+          chunkSent = true
+          controller.enqueue(encoder.encode('{"mode":"answer","answerText":"partial-text"}\n'))
+          return
+        }
+
+        controller.error(new Error('stream failed'))
+      },
+    })
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      })
+    )
+
+    const { result } = renderHook(() => useNodeChat(NODE_ID))
+
+    await waitFor(() => {
+      expect(result.current.turns).toHaveLength(0)
+    })
+
+    await act(async () => {
+      await result.current.sendMessage('stream me')
+    })
+
+    expect(chatDb.updateVariant).toHaveBeenCalledWith(
+      'variant-stream',
+      expect.objectContaining({
+        status: 'error',
+        contentText: 'partial-text',
+      })
+    )
+
+    await waitFor(() => {
+      const targetTurn = result.current.turns.find((turn) => turn.turnId === 'turn-new')
+      expect(targetTurn?.variants[0]?.status).toBe('error')
+      expect(targetTurn?.variants[0]?.contentText).toBe('partial-text')
+      expect(result.current.error).toContain('stream failed')
+    })
+  })
 })

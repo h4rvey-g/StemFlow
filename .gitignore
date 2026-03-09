@@ -13,3 +13,4 @@ playwright-report/
 .playwright-browsers
 .sisyphus
 logs
+.ace-tool/

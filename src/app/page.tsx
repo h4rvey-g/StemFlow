@@ -19,6 +19,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import { useStore } from '@/stores/useStore'
+import { useChatStore } from '@/stores/useChatStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { LANGUAGE_STORAGE_KEY, type SupportedLanguage } from '@/lib/i18n'
 import type { OMVNode, NodeType } from '@/stores/useStore'
@@ -190,9 +191,9 @@ function Canvas() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const persistedSelectionRef = useRef<string[]>([])
   const [inspectorNodeId, setInspectorNodeId] = useState<string | null>(null)
-  const [chatNodeId, setChatNodeId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
+  const chatNodeId = useChatStore((s) => s.activeChatNodeId)
   
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const isProjectLoaded = useProjectStore((s) => s.isLoaded)
@@ -477,7 +478,7 @@ function Canvas() {
         : null
       
       if (nodeId) {
-        setChatNodeId(nodeId)
+        useChatStore.getState().openChat(nodeId)
       }
     }
 
@@ -1215,7 +1216,7 @@ function Canvas() {
           inspectorNodeId={inspectorNodeId}
           chatNodeId={chatNodeId}
           onCloseInspector={() => setInspectorNodeId(null)}
-          onCloseChat={() => setChatNodeId(null)}
+          onCloseChat={() => useChatStore.getState().closeChat()}
           nodeText={inspectorNode?.data.text_content}
           nodeType={inspectorNode?.type as 'OBSERVATION' | 'MECHANISM' | 'VALIDATION' | 'GHOST'}
           summaryTitle={inspectorNode?.data.summary_title}
